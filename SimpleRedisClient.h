@@ -9,33 +9,6 @@
 #define	SIMPLEREDISCLIENT_H
  
 
-#include <cstdlib>
-#include <iostream>
-#include <memory>
-
-#include <pthread.h>
-
-#include <stdio.h>
-#include <time.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <sys/select.h>
-#include <sys/time.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#include <assert.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #define RC_ERR -1
   
@@ -45,6 +18,8 @@
 #define CR_ERR_RECV -103
 
 #define RC_ERR_PROTOCOL -104
+#define RC_ERR_BUFER_OVERFLOW -105
+#define RC_ERR_DATA_FORMAT -106
  
 class SimpleRedisClient
 {
@@ -72,21 +47,9 @@ public:
 
     SimpleRedisClient();
     
-    void setPort(int Port)
-    {
-        port = Port;
-    }
+    void setPort(int Port);
     
-    void setHost(const char* Host)
-    {
-        if(host != 0)
-        {
-            delete host;
-        }
-        
-        host = new char[strlen(Host)];
-        memcpy(host,Host,strlen(Host));
-    }
+    void setHost(const char* Host);
     
     virtual ~SimpleRedisClient();
 
@@ -113,6 +76,34 @@ public:
      */
     int set(const char *key, const char *val);
     
+    /**
+     * Операция set только с форматированием строки параметров.
+     * Ключ от значения отделяется пробелом.
+     * @param format
+     * @param ... ключь пробел значение
+     * @return 
+     */
+    int set_printf(const char *format, ...);
+    
+    /**
+     * 
+     * @param key Ключ
+     * @param format
+     * @param ... значение
+     * @return 
+     */
+    int set_printf(const char *key, const char *format, ...);
+    
+    /**
+     * Выполняет установку значения в редис
+     * Ключ от значения отделяется пробелом.
+     * @code rc = "MyKey MyValue";
+     * 
+     * 
+     * @param key_val
+     * @return 
+     */
+    SimpleRedisClient& operator=(const char *key_val);
      
     /**
      * Вернёт значение ключа или 0 в случаии ошибки.
@@ -225,6 +216,8 @@ public:
     
     int getDataSize() const;
     
+    void setBuferSize(int size);
+    int getBuferSize();
     
 protected:
       

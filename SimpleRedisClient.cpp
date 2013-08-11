@@ -5,6 +5,35 @@
  * Created on 10 Август 2013 г., 22:26
  */
 
+#include <cstdlib>
+#include <iostream>
+#include <memory>
+
+#include <pthread.h>
+
+#include <stdio.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/select.h>
+#include <sys/time.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <assert.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+
 #include "SimpleRedisClient.h"
    
 
@@ -38,7 +67,22 @@
 
     SimpleRedisClient::SimpleRedisClient()
     {  
-        bufer_size = 2048;
+        setBuferSize(2048);
+    }
+    
+    int SimpleRedisClient::getBuferSize()
+    {
+        return bufer_size;
+    }
+    
+    void SimpleRedisClient::setBuferSize(int size)
+    {  
+        if(bufer != 0)
+        {
+            delete bufer;
+        }
+            
+        bufer_size = size;
         bufer = new char[bufer_size];
     }
     
@@ -48,6 +92,11 @@
         
         delete bufer;
         bufer_size = 0;
+        
+        if(host != 0)
+        {
+            delete host;
+        }
     }
     
     /*  
@@ -92,6 +141,7 @@
         return select(fd+1, NULL, &fds, NULL, &tv);
     }
     
+     
     int SimpleRedisClient::redis_send(char recvtype, const char *format, ...)
     {
         data = 0;
@@ -106,13 +156,12 @@
 
         if( rc < 0 )
         {
-            
-            return -1;
+            return RC_ERR_DATA_FORMAT;
         }
 
         if( rc >= bufer_size )
         {
-            return -1; // Не хватило буфера
+            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
         }
 
         if(debug > 3) printf("SEND:%s",bufer);
@@ -261,6 +310,22 @@
      *  public:
      */
     
+    void SimpleRedisClient::setPort(int Port)
+    {
+        port = Port;
+    }
+    
+    void SimpleRedisClient::setHost(const char* Host)
+    {
+        if(host != 0)
+        {
+            delete host;
+        }
+        
+        host = new char[strlen(Host)];
+        memcpy(host,Host,strlen(Host));
+    }
+    
     /**
      * Соединение с редисом.
      */
@@ -308,7 +373,7 @@
             err = getaddrinfo(host, NULL, &hints, &info);
             if (err)
             {
-                //DEBUG("getaddrinfo error: %s\n", gai_strerror(err));
+                if(debug) printf("getaddrinfo error: %s\n", gai_strerror(err));
             }
 
             memcpy(&sa.sin_addr.s_addr, &(info->ai_addr->sa_data[2]), sizeof(in_addr_t));
@@ -318,14 +383,14 @@
         int flags = fcntl(fd, F_GETFL);
         if ((rc = fcntl(fd, F_SETFL, flags | O_NONBLOCK)) < 0)
         {
-          //DEBUG("Setting socket non-blocking failed with: %d\n", rc);
+          if(debug) printf("Setting socket non-blocking failed with: %d\n", rc);
         }
 
         if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0)
         {
             if (errno != EINPROGRESS)
             {
-                // goto error;
+                return RC_ERR;
             }
 
             if (wright_select(fd, timeout) > 0)
@@ -334,12 +399,12 @@
                 unsigned int len = sizeof(err);
                 if(getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == -1 || err)
                 {
-                    //goto error;
+                    return RC_ERR;
                 }
             }
             else /* timeout or select error */
             {
-                //goto error;
+                return RC_ERR_TIMEOUT;
             }
         }
         if(debug >1) printf("open ok %d\n", fd);
@@ -356,6 +421,62 @@
     int SimpleRedisClient::set(const char *key, const char *val)
     {
         return redis_send( RC_INLINE, "SET %s %s\r\n",   key, val);
+    }
+    
+    int SimpleRedisClient::set_printf(const char *key, const char *format, ...)
+    { 
+        char* buf = new char[bufer_size];
+        va_list ap; 
+        va_start(ap, format);
+        
+        int  rc = vsnprintf(buf, bufer_size, format, ap);
+        va_end(ap);
+        
+        if( rc >= bufer_size )
+        {
+            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
+        }
+        
+        if(rc <  0)
+        {
+            return RC_ERR_DATA_FORMAT;
+        }
+        
+        rc = redis_send( RC_INLINE, "SET %s %s\r\n",   key, buf);
+        delete buf;
+        
+        return rc;
+    }
+    
+    int SimpleRedisClient::set_printf(const char *format, ...)
+    { 
+        char* buf = new char[bufer_size];
+        va_list ap; 
+        va_start(ap, format);
+        
+        int  rc = vsnprintf(buf, bufer_size, format, ap);
+        va_end(ap);
+        
+        if( rc >= bufer_size )
+        {
+            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
+        }
+        
+        if(rc <  0)
+        {
+            return RC_ERR_DATA_FORMAT;
+        }
+        
+        rc = redis_send( RC_INLINE, "SET %s\r\n", buf);
+        delete buf;
+        
+        return rc;
+    }
+    
+    SimpleRedisClient& SimpleRedisClient::operator=(const char *key_val)
+    {
+        redis_send( RC_INLINE, "SET %s\r\n", key_val);
+        return *this;
     }
 
     
