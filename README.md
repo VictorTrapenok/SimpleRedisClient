@@ -4,23 +4,30 @@
 <pre>
 int main(int argc, char *argv[])
 {
+ 
   SimpleRedisClient rc;
 
   rc.redis_conect();
 
   printf("-------------------\n");
-  rc.set("MYKEY","MYVALUE");
+  if(rc.set("MYKEY","MYVALUE"))
+  {
+      printf("MYKEY == [%d][%s]\n", rc.getDataSize(), rc.getData());
+  }
   printf("-------------------\n");
-  rc.setex("MYKEY10","MYVALUE10", 10);
-  printf("-------------------\n");
+   
+  if(rc.get("MYKEY"))
+  {
+      printf("MYKEY == [%d][%s]\n", rc.getDataSize(), rc.getData());
+  }
   
-  char *c;
-  rc.get("MYKEY2", &c);
-  printf("MYKEY2:%s\n",c);
+  
+  if(rc["MYKEY"])
+  {
+      printf("MYKEY == [%d][%s]\n", (int)rc, (char*)rc);
+  }
 
   printf("-------------------\n");
   rc.redis_close();
-
-  return 0;
 }
 </pre>
