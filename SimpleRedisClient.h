@@ -130,7 +130,20 @@ public:
     operator int () const;
     
     int setex(const char *key, const char *val, int seconds);
+    int setex_printf(int seconds, const char *key, const char *format, ...);
     
+    /**
+     * Формат должен иметь вид: key seconds data
+     * Где 
+     * key строковый ключ
+     * seconds %d число секунд
+     * data строковые данные
+     * 
+     * @param format
+     * @param ...
+     * @return 
+     */
+    int setex_printf(const char *format, ...);
 
     int get(const char *key);
 
@@ -232,6 +245,18 @@ public:
     void setBuferSize(int size);
     int getBuferSize();
     
+    /**
+     * Вернёт true если соединение установлено 
+     */
+    operator bool () const;
+    
+    
+    /**
+     *  rc == true  истино если соединение установлено
+     *  rc == false  истино если соединение не установлено 
+     */
+    int operator == (bool); 
+    
 protected:
       
     int read_select(int fd, int timeout )  const;
@@ -318,7 +343,7 @@ public:
     }
      
     
-    SimpleRedisClient* grab(int random_id)
+    SimpleRedisClient& grab(int random_id)
     {
          int id = random_id%pool_index_size;
          pthread_mutex_lock(&request_mutex[id]);
@@ -328,15 +353,15 @@ public:
          
          pthread_mutex_unlock(&request_mutex[id]);
          
-         return rc;
+         return *rc;
     }
     
-    void release(SimpleRedisClient* rc, int random_id)
+    void release(SimpleRedisClient& rc, int random_id)
     { 
          int id = random_id%pool_index_size;
          pthread_mutex_lock(&request_mutex[id]);
          
-         pool[id].push_front(rc);
+         pool[id].push_front( &rc);
          
          pthread_mutex_unlock(&request_mutex[id]);
     }

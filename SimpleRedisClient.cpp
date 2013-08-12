@@ -483,6 +483,57 @@
         return redis_send(RC_INLINE, "SETEX %s %d %s\r\n",key, seconds, val); 
     }
     
+    int SimpleRedisClient::setex_printf(int seconds, const char *key, const char *format, ...)
+    { 
+        char* buf = new char[bufer_size];
+        va_list ap; 
+        va_start(ap, format);
+        
+        int  rc = vsnprintf(buf, bufer_size, format, ap);
+        va_end(ap);
+        
+        if( rc >= bufer_size )
+        {
+            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
+        }
+        
+        if(rc <  0)
+        {
+            return RC_ERR_DATA_FORMAT;
+        }
+        
+        return redis_send(RC_INLINE, "SETEX %s %d %s\r\n",key, seconds, buf); 
+        delete buf;
+        
+        return rc;
+    }
+    
+    
+    int SimpleRedisClient::setex_printf(const char *format, ...)
+    { 
+        char* buf = new char[bufer_size];
+        va_list ap; 
+        va_start(ap, format);
+        
+        int  rc = vsnprintf(buf, bufer_size, format, ap);
+        va_end(ap);
+        
+        if( rc >= bufer_size )
+        {
+            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
+        }
+        
+        if(rc <  0)
+        {
+            return RC_ERR_DATA_FORMAT;
+        }
+        
+        return redis_send(RC_INLINE, "SETEX %s\r\n", buf); 
+        delete buf;
+        
+        return rc;
+    }
+    
 
     int SimpleRedisClient::get(const char *key)
     {
@@ -685,6 +736,17 @@
         {
             close(fd);
         } 
+    }
+    
+    
+    SimpleRedisClient::operator bool () const
+    {
+        return fd != 0;
+    }
+    
+    int SimpleRedisClient::operator == (bool d)
+    {
+        return (fd != 0) == d;
     }
     
     

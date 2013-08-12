@@ -7,6 +7,13 @@ int main(int argc, char *argv[])
     SimpleRedisClient rc;
 
     rc.redis_conect();
+    
+    if(!rc)
+    {
+    	 printf("Соединение не установлено");
+    	 return -1;
+    }
+    
 
     if(rc.set("MYKEY","MYVALUE"))
     {
