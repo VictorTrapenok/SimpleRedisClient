@@ -25,8 +25,15 @@ int main(int argc, char *argv[])
     {
         printf("MYKEY == [%d][%s]\n", (int)rc, (char*)rc);
     }
+    
+    rc += "myincrKey"; // Инкриментирует myincrKey
+    rc += "myincrKey";
+    rc += "myincrKey";
 
 
+    rc -= "myincrKey"; // Декриментирует myincrKey
+    
+    
     rc.setex(key_name, redis_save_buf, 600);
  
     rc.set_printf("%s_stat_interval %d", "constCharName",123+6);

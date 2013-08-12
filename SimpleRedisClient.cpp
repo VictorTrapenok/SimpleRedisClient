@@ -256,9 +256,7 @@
             return RC_ERR; // error
         }
     }
- 
-    
-     
+  
     /**
      * Отправляет данные
      * @param buf
@@ -645,7 +643,28 @@
       return redis_send( RC_INT, "TTL %s\r\n", key); 
     }
 
- 
+    int SimpleRedisClient::delta( int delta, const char *key)
+    { 
+        if (delta == 1 || delta == -1)
+        {
+            return redis_send( RC_INT, "%s %s\r\n",  delta > 0 ? "INCR" : "DECR", key);
+        }
+        else
+        {    
+            return redis_send( RC_INT, "%s %s %d\r\n", delta > 0 ? "INCRBY" : "DECRBY", key, abs(delta) );
+        }  
+    }
+    
+    
+    int SimpleRedisClient::operator +=( const char *key)
+    {
+        return redis_send( RC_INT, "%s %s\r\n",  "INCR" , key);
+    }
+    
+    int SimpleRedisClient::operator -=( const char *key)
+    {
+        return redis_send( RC_INT, "%s %s\r\n",  "DECR" , key);
+    }
     
     /**
      * 

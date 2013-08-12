@@ -9,6 +9,7 @@
 #define	SIMPLEREDISCLIENT_H
  
 
+#include <list>
 
 #define RC_ERR -1
   
@@ -58,15 +59,11 @@ public:
     int redis_conect(const char* Host,int Port, int TimeOut);
     
     /* 
-      vector3 operator=(vector3 v);         // Ïåðåãðóæåííûé îïåðàòîð = 
-      
-      vector3 operator-=(vector3 v);         // Ïåðåãðóæåííûé îïåðàòîð -= 
-      
-      vector3 operator=(float v);         // Ïåðåãðóæåííûé îïåðàòîð = 
-      
-      vector3 operator-=(float v);         // Ïåðåãðóæåííûé îïåðàòîð - 
-      bool    operator==(vector3 v);       // Ïåðåãðóæåííûé îïåðàòîð ==
+      vector3 operator=(vector3 v);
+      vector3 operator-=(float v); 
+      bool    operator==(vector3 v);
      */
+    
     
     /**
      * Ни ключь ни значение не должны содержать "\r\n"
@@ -194,6 +191,22 @@ public:
      * @return 
      */
     int ttl( const char *key);
+    
+    int delta( int delta, const char *key);
+    
+    /**
+     * Инкриментирует значение ключа key
+     * @param key ключь в редисе
+     * @return 
+     */
+    int operator +=( const char *key);
+    
+    /**
+     * Декриментирует значение ключа key
+     * @param key ключь в редисе
+     * @return 
+     */ 
+    int operator -=( const char *key); 
 
     int getRedisVersion();
     
@@ -236,6 +249,101 @@ protected:
  
 };
 
+
+
+class RedisClientConnectionPool
+{ 
+    
+    std::list <SimpleRedisClient*> * pool;
+    pthread_mutex_t* request_mutex;
+    
+    int pool_index_size = 0; 
+public:
+    RedisClientConnectionPool()
+    {
+        setPoolIndexSize(100);
+    }
+    
+    /**
+     * Чем больше Pool_index_size тем меньше вероятность того что один поток будет ожидать завершения выполнения другого потока в этой секции.
+     * @param Pool_index_size
+     */
+    RedisClientConnectionPool(int Pool_index_size)
+    {
+         setPoolIndexSize(Pool_index_size);
+    }
+    
+    /**
+     * Операция убъёт все откытые соединения с редисом и установит pool_index_size в новое значение 
+     * @param Pool_index_size значение не должно быть меньше единицы
+     */
+    void setPoolIndexSize(int Pool_index_size)
+    {
+        if(Pool_index_size < 1)
+        {
+            Pool_index_size = 1;
+        }
+        
+        if(pool != 0)
+        {
+             for(int i=0; i< pool_index_size; i++)
+             {
+                 pool[i].clear();
+             }
+             delete pool;
+             delete request_mutex;
+        }
+        
+        pool_index_size = Pool_index_size;
+        pool = new std::list <SimpleRedisClient*>[pool_index_size];
+        request_mutex = new pthread_mutex_t[pool_index_size];
+        
+        for(int i=0; i<pool_index_size+1; i++ )
+        {
+            pthread_mutex_init(&request_mutex[i],NULL);
+        }
+    }
+    
+    ~RedisClientConnectionPool()
+    {
+        if(pool != 0)
+        {
+            for(int i=0; i< pool_index_size; i++)
+            {
+                 pool[i].clear();
+            }
+            delete pool;
+            delete request_mutex;
+        }
+    }
+     
+    
+    SimpleRedisClient* grab(int random_id)
+    {
+         int id = random_id%pool_index_size;
+         pthread_mutex_lock(&request_mutex[id]);
+         
+         SimpleRedisClient* rc = *pool[id].begin();
+         pool[id].erase(pool[id].begin());
+         
+         pthread_mutex_unlock(&request_mutex[id]);
+         
+         return rc;
+    }
+    
+    void release(SimpleRedisClient* rc, int random_id)
+    { 
+         int id = random_id%pool_index_size;
+         pthread_mutex_lock(&request_mutex[id]);
+         
+         pool[id].push_front(rc);
+         
+         pthread_mutex_unlock(&request_mutex[id]);
+    }
+    
+    
+    
+};
 
 #endif	/* SIMPLEREDISCLIENT_H */
 
