@@ -22,6 +22,10 @@
 #define RC_ERR_BUFER_OVERFLOW -105
 #define RC_ERR_DATA_FORMAT -106
  
+
+int read_int(const char* bufer,char delimiter,int* delta);
+int read_int(const char* bufer,char delimiter);
+
 class SimpleRedisClient
 {
 
@@ -29,8 +33,9 @@ class SimpleRedisClient
     int yes = 1;
     int timeout = 1000;
 
-    char* bufer;
-    int bufer_size;
+    char* bufer = 0;
+    char* buf = 0;
+    int bufer_size = 0;
 
     int port = 6379;
     char* host = 0;
@@ -59,7 +64,6 @@ public:
     int redis_conect(const char* Host,int Port, int TimeOut);
     
     /* 
-      vector3 operator=(vector3 v);
       vector3 operator-=(float v); 
       bool    operator==(vector3 v);
      */
@@ -103,7 +107,7 @@ public:
     SimpleRedisClient& operator=(const char *key_val);
      
     /**
-     * Вернёт значение ключа или 0 в случаии ошибки.
+     * Вернёт значение ключа или 0 в случаии отсутсвия ключа или ошибки
      * Пример:
      * 
      * char* val = rc["key"];
@@ -116,6 +120,7 @@ public:
      * Или по указаному адресу будут уже другие данные либо мусор.
      */
     char* operator[] (const char *key);
+    char* operator[] (char *key);
     
     /**
      * Равносильно методу getData()
@@ -124,10 +129,36 @@ public:
     operator char* () const;
     
     /**
-     * Равносильно методу getDataSize()
+     * Равносильно методу getData() с преобразованием в int
      * @return 
      */
     operator int () const;
+    
+    /**
+     * Инкриментирует значение ключа key
+     * @param key ключь в редисе
+     * @return 
+     */
+    int operator +=( const char *key);
+    
+    /**
+     * Декриментирует значение ключа key
+     * @param key ключь в редисе
+     * @return 
+     */ 
+    int operator -=( const char *key); 
+
+    /**
+     * Вернёт true если соединение установлено 
+     */
+    operator bool () const;
+    
+    
+    /**
+     *  rc == true  истино если соединение установлено
+     *  rc == false  истино если соединение не установлено 
+     */
+    int operator == (bool); 
     
     int setex(const char *key, const char *val, int seconds);
     int setex_printf(int seconds, const char *key, const char *format, ...);
@@ -147,9 +178,19 @@ public:
 
     int get(const char *key);
 
+    /**
+     * Set the string value of a key and return its old value
+     * @param key
+     * @param set_val
+     * @param get_val
+     * @return 
+     */
     int getset(const char *key, const char *set_val, char **get_val);
 
 
+    /**
+     * Ping the server
+     */
     int ping();
 
     int echo(const char *message, char **reply);
@@ -163,6 +204,9 @@ public:
     
 
     /**
+     * http://redis.io/commands
+     * 
+     * 
      * static int cr_incr(REDIS rhnd, int incr, int decr, const char *key, int *new_val)
      * credis_incr
      * credis_decr
@@ -174,6 +218,8 @@ public:
      * cr_multikeystorecommand
      * credis_mget
      * 
+     * Set multiple keys to multiple values
+     * MSET key value [key value ...]
      */ 
 
     int append(const char *key, const char *val);
@@ -198,6 +244,15 @@ public:
 
     int expire( const char *key, int secs);
 
+     
+
+    int sadd(const char *key, const char *member);
+    int sadd_printf(const char *format, ...);
+
+    int srem(const char *key, const char *member);
+    int srem_printf(const char *format, ...);
+
+    
     /**
      * Returns the remaining time to live of a key that has a timeout.
      * @param key
@@ -207,20 +262,6 @@ public:
     
     int delta( int delta, const char *key);
     
-    /**
-     * Инкриментирует значение ключа key
-     * @param key ключь в редисе
-     * @return 
-     */
-    int operator +=( const char *key);
-    
-    /**
-     * Декриментирует значение ключа key
-     * @param key ключь в редисе
-     * @return 
-     */ 
-    int operator -=( const char *key); 
-
     int getRedisVersion();
     
     /**
@@ -245,18 +286,6 @@ public:
     void setBuferSize(int size);
     int getBuferSize();
     
-    /**
-     * Вернёт true если соединение установлено 
-     */
-    operator bool () const;
-    
-    
-    /**
-     *  rc == true  истино если соединение установлено
-     *  rc == false  истино если соединение не установлено 
-     */
-    int operator == (bool); 
-    
 protected:
       
     int read_select(int fd, int timeout )  const;
@@ -279,92 +308,27 @@ protected:
 class RedisClientConnectionPool
 { 
     
-    std::list <SimpleRedisClient*> * pool;
+    std::list<SimpleRedisClient*>* pool;
     pthread_mutex_t* request_mutex;
     
     int pool_index_size = 0; 
 public:
-    RedisClientConnectionPool()
-    {
-        setPoolIndexSize(100);
-    }
+    RedisClientConnectionPool();
     
     /**
      * Чем больше Pool_index_size тем меньше вероятность того что один поток будет ожидать завершения выполнения другого потока в этой секции.
      * @param Pool_index_size
      */
-    RedisClientConnectionPool(int Pool_index_size)
-    {
-         setPoolIndexSize(Pool_index_size);
-    }
+    RedisClientConnectionPool(int Pool_index_size);
     
     /**
      * Операция убъёт все откытые соединения с редисом и установит pool_index_size в новое значение 
      * @param Pool_index_size значение не должно быть меньше единицы
      */
-    void setPoolIndexSize(int Pool_index_size)
-    {
-        if(Pool_index_size < 1)
-        {
-            Pool_index_size = 1;
-        }
-        
-        if(pool != 0)
-        {
-             for(int i=0; i< pool_index_size; i++)
-             {
-                 pool[i].clear();
-             }
-             delete pool;
-             delete request_mutex;
-        }
-        
-        pool_index_size = Pool_index_size;
-        pool = new std::list <SimpleRedisClient*>[pool_index_size];
-        request_mutex = new pthread_mutex_t[pool_index_size];
-        
-        for(int i=0; i<pool_index_size+1; i++ )
-        {
-            pthread_mutex_init(&request_mutex[i],NULL);
-        }
-    }
-    
-    ~RedisClientConnectionPool()
-    {
-        if(pool != 0)
-        {
-            for(int i=0; i< pool_index_size; i++)
-            {
-                 pool[i].clear();
-            }
-            delete pool;
-            delete request_mutex;
-        }
-    }
-     
-    
-    SimpleRedisClient& grab(int random_id)
-    {
-         int id = random_id%pool_index_size;
-         pthread_mutex_lock(&request_mutex[id]);
-         
-         SimpleRedisClient* rc = *pool[id].begin();
-         pool[id].erase(pool[id].begin());
-         
-         pthread_mutex_unlock(&request_mutex[id]);
-         
-         return *rc;
-    }
-    
-    void release(SimpleRedisClient& rc, int random_id)
-    { 
-         int id = random_id%pool_index_size;
-         pthread_mutex_lock(&request_mutex[id]);
-         
-         pool[id].push_front( &rc);
-         
-         pthread_mutex_unlock(&request_mutex[id]);
-    }
+    void setPoolIndexSize(int Pool_index_size);
+    ~RedisClientConnectionPool();
+    SimpleRedisClient& grab(int random_id);    
+    void release(SimpleRedisClient& rc, int random_id);
     
     
     

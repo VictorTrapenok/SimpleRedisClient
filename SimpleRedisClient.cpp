@@ -1,7 +1,7 @@
-/* 
+/*
  * File:   SimpleRedisClient.cpp
  * Author: victor
- * 
+ *
  * Created on 10 Август 2013 г., 22:26
  */
 
@@ -35,7 +35,58 @@
 
 
 #include "SimpleRedisClient.h"
-   
+
+
+int read_int(const char* bufer,char delimiter,int* delta)
+{
+    const char* p = bufer;
+    int len = 0;
+    int d =0;
+
+    while(*p != delimiter)
+    {
+        if(*p > '9' || *p < '0')
+        {
+            return -1;
+        }
+
+        len = (len*10)+(*p - '0');
+        p++;
+        delta++;
+        d++;
+        if(d > 7)
+        {
+            return -1;
+        }
+    }
+
+    return len;
+}
+
+int read_int(const char* bufer,char delimiter)
+{
+    const char* p = bufer;
+    int len = 0;
+    int delta = 0;
+
+    while(*p != delimiter)
+    {
+        if(*p > '9' || *p < '0')
+        {
+            return -1;
+        }
+
+        len = (len*10)+(*p - '0');
+        p++;
+        delta++;
+        if(delta > 7)
+        {
+            return -1;
+        }
+    }
+
+    return len;
+}
 
     #define RC_ERROR '-'
 
@@ -66,40 +117,44 @@
 
 
     SimpleRedisClient::SimpleRedisClient()
-    {  
+    {
         setBuferSize(2048);
     }
-    
+
     int SimpleRedisClient::getBuferSize()
     {
         return bufer_size;
     }
-    
+
     void SimpleRedisClient::setBuferSize(int size)
-    {  
+    {
         if(bufer != 0)
         {
             delete bufer;
+            delete buf;
         }
-            
+
         bufer_size = size;
         bufer = new char[bufer_size];
+        buf = new char[bufer_size];
     }
-    
+
     SimpleRedisClient::~SimpleRedisClient()
     {
+        printf("~SimpleRedisClient\n");
+
         redis_close();
-        
+
         delete bufer;
         bufer_size = 0;
-        
+
         if(host != 0)
         {
             delete host;
         }
     }
-    
-    /*  
+
+    /*
      * Returns:
      *  >0  Колво байт
      *   0  Соединение закрыто
@@ -117,10 +172,10 @@
         FD_ZERO(&fds);
         FD_SET(fd, &fds);
 
-        return select(fd + 1, &fds, NULL, NULL, &tv); 
+        return select(fd + 1, &fds, NULL, NULL, &tv);
     }
-    
-    /*  
+
+    /*
      * Returns:
      *  >0  Колво байт
      *   0  Соединение закрыто
@@ -140,17 +195,22 @@
 
         return select(fd+1, NULL, &fds, NULL, &tv);
     }
-    
-     
+
+
     int SimpleRedisClient::redis_send(char recvtype, const char *format, ...)
     {
+        if(fd == 0)
+        {
+            redis_conect();
+        }
+        
         data = 0;
         data_size = 0;
-                        
-        bzero(bufer,bufer_size); 
-        va_list ap; 
+
+        bzero(bufer,bufer_size);
+        va_list ap;
         va_start(ap, format);
-        
+
         int  rc = vsnprintf(bufer, bufer_size, format, ap);
         va_end(ap);
 
@@ -164,7 +224,7 @@
             return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
         }
 
-        if(debug > 3) printf("SEND:%s",bufer);
+        if(debug > 3 || 1) printf("SEND:%s",bufer);
         rc = send_data(bufer);
 
         if (rc != (int) strlen(bufer))
@@ -178,19 +238,19 @@
         }
 
 
-        bzero(bufer,bufer_size);  
+        bzero(bufer,bufer_size);
         rc = read_select(fd, timeout);
-        
+
         if (rc > 0)
         {
             rc = recv(fd, bufer, bufer_size, 0);
             if(rc < 0)
             {
-                return CR_ERR_RECV; 
+                return CR_ERR_RECV;
             }
-            
-            if(debug > 3) printf("REDIS BUF: R:%d S:%s",rc, bufer); 
-            
+
+            if(debug > 3 || 1) printf("REDIS BUF: R:%d S:%s",rc, bufer);
+
             char prefix = bufer[0];
 
             if (recvtype != RC_ANY && prefix != recvtype && prefix != RC_ERROR)
@@ -201,7 +261,7 @@
 
             char *p;
             int len = 0;
-            
+
             switch (prefix)
             {
                 case RC_ERROR:
@@ -211,8 +271,8 @@
                     return rc;
                 case RC_INLINE:
                     if(debug) printf("\x1b[33mREDIS RC_INLINE:%s\x1b[0m\n", bufer);
-                        data_size = strlen(bufer+1)-2; 
-                        data = bufer+1; 
+                        data_size = strlen(bufer+1)-2;
+                        data = bufer+1;
                         data[data_size] = 0;
                     return rc;
                 case RC_INT:
@@ -222,9 +282,16 @@
                     return rc;
                 case RC_BULK:
                     if(debug) printf("\x1b[33mREDIS RC_BULK:%s\x1b[0m\n", bufer);
-                      
+
                         p = bufer;
                         p++;
+
+                        if(*p == '-')
+                        {
+                            data = 0;
+                            data_size = -1;
+                        }
+
                         while(*p != '\r') {
                             len = (len*10)+(*p - '0');
                             p++;
@@ -232,19 +299,19 @@
 
                         /* Now p points at '\r', and the len is in bulk_len. */
                         if(debug > 3) printf("%d\n", len);
-                        
+
                         data = p+2;
                         data_size = len;
                         data[data_size] = 0;
-                        
+
                     return rc;
                 case RC_MULTIBULK:
-                    printf("\x1b[31mREDIS RC_MULTIBULK:%s\x1b[0m\n", bufer); 
+                    printf("\x1b[31mREDIS RC_MULTIBULK:%s\x1b[0m\n", bufer);
                         data = bufer;
                         data_size = rc;
                     return rc;
             }
-            
+
             return rc;
         }
         else if (rc == 0)
@@ -256,11 +323,11 @@
             return RC_ERR; // error
         }
     }
-  
+
     /**
      * Отправляет данные
      * @param buf
-     * @return 
+     * @return
      */
     int SimpleRedisClient::send_data( const char *buf ) const
     {
@@ -303,27 +370,27 @@
 
         return sent;
     }
-    
+
     /**
      *  public:
      */
-    
+
     void SimpleRedisClient::setPort(int Port)
     {
         port = Port;
     }
-    
+
     void SimpleRedisClient::setHost(const char* Host)
     {
         if(host != 0)
         {
             delete host;
         }
-        
+
         host = new char[strlen(Host)];
         memcpy(host,Host,strlen(Host));
     }
-    
+
     /**
      * Соединение с редисом.
      */
@@ -333,7 +400,7 @@
         setHost(Host);
         return redis_conect();
     }
-    
+
     int SimpleRedisClient::redis_conect(const char* Host,int Port, int TimeOut)
     {
         setPort(Port);
@@ -341,14 +408,14 @@
         setTimeout(TimeOut);
         return redis_conect();
     }
-    
+
     int SimpleRedisClient::redis_conect()
     {
         if(host == 0)
         {
             setHost("127.0.0.1");
         }
-        
+
         int rc;
         struct sockaddr_in sa;
 
@@ -420,190 +487,182 @@
     {
         return redis_send( RC_INLINE, "SET %s %s\r\n",   key, val);
     }
-    
+
     int SimpleRedisClient::set_printf(const char *key, const char *format, ...)
-    { 
-        char* buf = new char[bufer_size];
-        va_list ap; 
+    {
+        va_list ap;
         va_start(ap, format);
-        
+
         int  rc = vsnprintf(buf, bufer_size, format, ap);
         va_end(ap);
-        
+
         if( rc >= bufer_size )
         {
             return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
         }
-        
+
         if(rc <  0)
         {
             return RC_ERR_DATA_FORMAT;
         }
-        
+
         rc = redis_send( RC_INLINE, "SET %s %s\r\n",   key, buf);
-        delete buf;
-        
         return rc;
     }
-    
+
     int SimpleRedisClient::set_printf(const char *format, ...)
-    { 
-        char* buf = new char[bufer_size];
-        va_list ap; 
+    {
+        va_list ap;
         va_start(ap, format);
-        
+
         int  rc = vsnprintf(buf, bufer_size, format, ap);
         va_end(ap);
-        
+
         if( rc >= bufer_size )
         {
             return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
         }
-        
+
         if(rc <  0)
         {
             return RC_ERR_DATA_FORMAT;
         }
-        
+
         rc = redis_send( RC_INLINE, "SET %s\r\n", buf);
-        delete buf;
-        
         return rc;
     }
-    
+
     SimpleRedisClient& SimpleRedisClient::operator=(const char *key_val)
     {
         redis_send( RC_INLINE, "SET %s\r\n", key_val);
         return *this;
     }
 
-    
+
     int SimpleRedisClient::setex(const char *key, const char *val, int seconds)
-    { 
-        return redis_send(RC_INLINE, "SETEX %s %d %s\r\n",key, seconds, val); 
+    {
+        return redis_send(RC_INLINE, "SETEX %s %d %s\r\n",key, seconds, val);
     }
-    
+
     int SimpleRedisClient::setex_printf(int seconds, const char *key, const char *format, ...)
-    { 
-        char* buf = new char[bufer_size];
-        va_list ap; 
+    {
+        va_list ap;
         va_start(ap, format);
-        
+
         int  rc = vsnprintf(buf, bufer_size, format, ap);
         va_end(ap);
-        
+
         if( rc >= bufer_size )
         {
             return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
         }
-        
+
         if(rc <  0)
         {
             return RC_ERR_DATA_FORMAT;
         }
-        
+
         return redis_send(RC_INLINE, "SETEX %s %d %s\r\n",key, seconds, buf); 
-        delete buf;
-        
-        return rc;
     }
-    
-    
+
+
     int SimpleRedisClient::setex_printf(const char *format, ...)
-    { 
-        char* buf = new char[bufer_size];
-        va_list ap; 
+    {
+        va_list ap;
         va_start(ap, format);
-        
+
         int  rc = vsnprintf(buf, bufer_size, format, ap);
         va_end(ap);
-        
+
         if( rc >= bufer_size )
         {
             return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
         }
-        
+
         if(rc <  0)
         {
             return RC_ERR_DATA_FORMAT;
         }
-        
+
         return redis_send(RC_INLINE, "SETEX %s\r\n", buf); 
-        delete buf;
-        
-        return rc;
     }
-    
+
 
     int SimpleRedisClient::get(const char *key)
     {
-      return redis_send( RC_BULK, "GET %s\r\n", key); 
+      return redis_send( RC_BULK, "GET %s\r\n", key);
     }
-    
-    
+
+
     char* SimpleRedisClient::operator[] (const char *key)
-    {  
+    {
         redis_send( RC_BULK, "GET %s\r\n", key);
         return getData();
     }
-    
-    
+
+    char* SimpleRedisClient::operator[] (char *key)
+    {
+        redis_send( RC_BULK, "GET %s\r\n", key);
+        return getData();
+    }
+
+
     SimpleRedisClient::operator char* () const
-    { 
+    {
 
         /**
          * Выделет память и скопирует в него последний ответ редиса.
          * Вернёт указатель на ответ или 0 если последний запрос был с ошибкой.
-         * 
+         *
          * Выделеную память надо будет очистить в ручную.
         char* d = 0;
         if( data )
         {
             char* d = new char[data_size];
             memcpy(d, data,data_size);
-        } 
+        }
         return d;
          */
         return getData();
     }
-    
+
     SimpleRedisClient::operator int () const
     {
-      return data_size;
+        return read_int(getData(), '\r');
     }
 
     int SimpleRedisClient::getset(const char *key, const char *set_val, char **get_val)
-    { 
-      return redis_send( RC_BULK, "GETSET %s %s\r\n",   key, set_val); 
+    {
+      return redis_send( RC_BULK, "GETSET %s %s\r\n",   key, set_val);
     }
 
 
-    int SimpleRedisClient::ping() 
+    int SimpleRedisClient::ping()
     {
       return redis_send( RC_INLINE, "PING\r\n");
     }
 
     int SimpleRedisClient::echo(const char *message, char **reply)
-    { 
+    {
       return redis_send( RC_BULK, "ECHO %s\r\n", message);;
     }
 
-    int SimpleRedisClient::quit() 
+    int SimpleRedisClient::quit()
     {
       return redis_send( RC_INLINE, "QUIT\r\n");
     }
 
     int SimpleRedisClient::auth(const char *password)
     {
-      return redis_send( RC_INLINE, "AUTH %s\r\n", password); 
+      return redis_send( RC_INLINE, "AUTH %s\r\n", password);
     }
-    
-    
+
+
     int SimpleRedisClient::getRedisVersion()
     {
-      /* We can receive 2 version formats: x.yz and x.y.z, where x.yz was only used prior 
+      /* We can receive 2 version formats: x.yz and x.y.z, where x.yz was only used prior
        * first 1.1.0 release(?), e.g. stable releases 1.02 and 1.2.6 */
-      /* TODO check returned error string, "-ERR operation not permitted", to detect if 
+      /* TODO check returned error string, "-ERR operation not permitted", to detect if
        * server require password? */
       if (redis_send( RC_BULK, "INFO\r\n") == 0)
       {
@@ -613,32 +672,32 @@
 
       return 0;
     }
- 
+
 
     int SimpleRedisClient::setnx(const char *key, const char *val)
     {
-      return redis_send( RC_INT, "SETNX %s %s\r\n",  key, val); 
+      return redis_send( RC_INT, "SETNX %s %s\r\n",  key, val);
     }
-    
- 
+
+
     int SimpleRedisClient::append(const char *key, const char *val)
     {
-      return redis_send(RC_INT, "APPEND %s %s\r\n",  key, val); 
+      return redis_send(RC_INT, "APPEND %s %s\r\n",  key, val);
     }
 
     int SimpleRedisClient::substr( const char *key, int start, int end, char **substr)
     {
-      return redis_send(RC_BULK, "SUBSTR %s %d %d\r\n",   key, start, end); 
+      return redis_send(RC_BULK, "SUBSTR %s %d %d\r\n",   key, start, end);
     }
 
     int SimpleRedisClient::exists( const char *key)
     {
-      return redis_send( RC_INT, "EXISTS %s\r\n", key); 
+      return redis_send( RC_INT, "EXISTS %s\r\n", key);
     }
 
     int SimpleRedisClient::del( const char *key)
     {
-      return redis_send( RC_INT, "DEL %s\r\n", key); 
+      return redis_send( RC_INT, "DEL %s\r\n", key);
     }
 
     int SimpleRedisClient::type( const char *key)
@@ -656,17 +715,17 @@
         else
           rc = CREDIS_TYPE_NONE;
       }*/
- 
+
     }
 
     int SimpleRedisClient::keys( const char *pattern, char ***keyv)
     {
-      return redis_send(RC_MULTIBULK, "KEYS %s\r\n", pattern); 
+      return redis_send(RC_MULTIBULK, "KEYS %s\r\n", pattern);
     }
 
     int SimpleRedisClient::randomkey( char **key)
     {
-      return redis_send( RC_BULK, "RANDOMKEY\r\n"); 
+      return redis_send( RC_BULK, "RANDOMKEY\r\n");
     }
 
     int SimpleRedisClient::rename( const char *key, const char *new_key_name)
@@ -676,49 +735,49 @@
 
     int SimpleRedisClient::renamenx( const char *key, const char *new_key_name)
     {
-      return redis_send( RC_INT, "RENAMENX %s %s\r\n", key, new_key_name); 
+      return redis_send( RC_INT, "RENAMENX %s %s\r\n", key, new_key_name);
     }
 
     int SimpleRedisClient::dbsize()
     {
-      return redis_send( RC_INT, "DBSIZE\r\n"); 
+      return redis_send( RC_INT, "DBSIZE\r\n");
     }
 
     int SimpleRedisClient::expire( const char *key, int secs)
-    { 
-      return redis_send( RC_INT, "EXPIRE %s %d\r\n", key, secs); 
+    {
+      return redis_send( RC_INT, "EXPIRE %s %d\r\n", key, secs);
     }
 
     int SimpleRedisClient::ttl( const char *key)
     {
-      return redis_send( RC_INT, "TTL %s\r\n", key); 
+      return redis_send( RC_INT, "TTL %s\r\n", key);
     }
 
     int SimpleRedisClient::delta( int delta, const char *key)
-    { 
+    {
         if (delta == 1 || delta == -1)
         {
             return redis_send( RC_INT, "%s %s\r\n",  delta > 0 ? "INCR" : "DECR", key);
         }
         else
-        {    
+        {
             return redis_send( RC_INT, "%s %s %d\r\n", delta > 0 ? "INCRBY" : "DECRBY", key, abs(delta) );
-        }  
+        }
     }
-    
-    
+
+
     int SimpleRedisClient::operator +=( const char *key)
     {
         return redis_send( RC_INT, "%s %s\r\n",  "INCR" , key);
     }
-    
+
     int SimpleRedisClient::operator -=( const char *key)
     {
         return redis_send( RC_INT, "%s %s\r\n",  "DECR" , key);
     }
-    
+
     /**
-     * 
+     *
      * @param TimeOut
      */
     void SimpleRedisClient::setTimeout( int TimeOut)
@@ -735,27 +794,208 @@
         if(fd != 0 )
         {
             close(fd);
-        } 
+        }
     }
-    
-    
+
+
     SimpleRedisClient::operator bool () const
     {
         return fd != 0;
     }
-    
+
     int SimpleRedisClient::operator == (bool d)
     {
         return (fd != 0) == d;
     }
-    
-    
+
+
     char* SimpleRedisClient::getData() const
     {
         return data;
     }
-    
+
     int SimpleRedisClient::getDataSize() const
     {
         return data_size;
     }
+
+
+    int SimpleRedisClient::sadd(const char *key, const char *member)
+    {
+      return redis_send(RC_INT, "SADD %s %s\r\n", key, member);
+    }
+
+    /**
+     * Add the specified members to the set stored at key. Specified members that are already a member of this set are ignored. If key does not exist, a new set is created before adding the specified members.
+     * An error is returned when the value stored at key is not a set.
+     * @see http://redis.io/commands/sadd
+     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-sadd
+     * @param format
+     * @param ... Ключь Значение (через пробел, в значении нет пробелов)
+     * @return 
+     */
+    int SimpleRedisClient::sadd_printf(const char *format, ...)
+    {
+        va_list ap;
+        va_start(ap, format);
+
+        int  rc = vsnprintf(buf, bufer_size, format, ap);
+        va_end(ap);
+
+        if( rc >= bufer_size )
+        {
+            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
+        }
+
+        if(rc <  0)
+        {
+            return RC_ERR_DATA_FORMAT;
+        }
+
+        return redis_send(RC_INT, "SADD %s\r\n", buf);
+    }
+    
+    int SimpleRedisClient::srem(const char *key, const char *member)
+    {
+        return redis_send(RC_INT, "SREM %s %s\r\n", key, member);
+    }
+
+    /**
+     * Remove the specified members from the set stored at key. Specified members that are not a member of this set are ignored. If key does not exist, it is treated as an empty set and this command returns 0.
+     * An error is returned when the value stored at key is not a set.
+     * @see http://redis.io/commands/srem
+     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-srem
+     * @param format
+     * @param ... Ключь Значение (через пробел, в значении нет пробелов)
+     * @return 
+     */
+    int SimpleRedisClient::srem_printf(const char *format, ...)
+    {
+        va_list ap;
+        va_start(ap, format);
+
+        int  rc = vsnprintf(buf, bufer_size, format, ap);
+        va_end(ap);
+
+        if( rc >= bufer_size )
+        {
+            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
+        }
+
+        if(rc <  0)
+        {
+            return RC_ERR_DATA_FORMAT;
+        }
+
+        return redis_send(RC_INT, "SREM %s\r\n", buf);
+    }
+
+    /**
+     * RedisClientConnectionPool
+     */
+
+    RedisClientConnectionPool::RedisClientConnectionPool()
+    {
+
+    }
+
+    /**
+     * Чем больше Pool_index_size тем меньше вероятность того что один поток будет ожидать завершения выполнения другого потока в этой секции.
+     * @param Pool_index_size
+     */
+    RedisClientConnectionPool::RedisClientConnectionPool(int Pool_index_size)
+    {
+         setPoolIndexSize(Pool_index_size);
+    }
+
+    /**
+     * Операция убъёт все откытые соединения с редисом и установит pool_index_size в новое значение
+     * @param Pool_index_size значение не должно быть меньше единицы
+     */
+    void RedisClientConnectionPool::setPoolIndexSize(int Pool_index_size)
+    {
+        printf("setPoolIndexSize:%d",Pool_index_size);
+
+        if(Pool_index_size < 1)
+        {
+            Pool_index_size = 1;
+        }
+
+        if(pool != 0)
+        {
+             return;
+             for(int i=0; i< pool_index_size; i++)
+             {
+                 pool[i].clear();
+             }
+             //delete pool; @todo Разобратся почему не удаляется
+             delete request_mutex;
+        }
+
+        pool_index_size = Pool_index_size;
+
+        pool = new std::list<SimpleRedisClient*>[pool_index_size];
+        request_mutex = new pthread_mutex_t[pool_index_size];
+
+        for(int i=0; i<pool_index_size; i++ )
+        {
+            pthread_mutex_init(&request_mutex[i],NULL);
+        }
+    }
+
+    RedisClientConnectionPool::~RedisClientConnectionPool()
+    {
+        if(pool != 0)
+        {
+            for(int i=0; i< pool_index_size; i++)
+            {
+                 pool[i].clear();
+            }
+            //delete pool;
+            delete request_mutex;
+        }
+    }
+
+
+    SimpleRedisClient& RedisClientConnectionPool::grab(int random_id)
+    {
+
+
+         int id = random_id%pool_index_size;
+         printf("RedisClientConnectionPool::grab:%d -> %d\n",random_id, id);
+         pthread_mutex_lock(&request_mutex[id]);
+
+         printf("RedisClientConnectionPool::grab:lock\n");
+
+         SimpleRedisClient* rc;
+         if(!pool[id].empty())
+         {
+             printf("!pool[id].empty()\n");
+             rc = *pool[id].begin();
+             printf("pool[id].pop_front()\n");
+             pool[id].pop_front();
+         }
+         else
+         {
+             printf("pool[id].empty()\n");
+             rc = new SimpleRedisClient();
+             rc->redis_conect();
+         }
+         printf("RedisClientConnectionPool::grab:unlock\n");
+
+         pthread_mutex_unlock(&request_mutex[id]);
+
+         return *rc;
+    }
+
+    void RedisClientConnectionPool::release(SimpleRedisClient& rc, int random_id)
+    {
+         int id = random_id%pool_index_size;
+         pthread_mutex_lock(&request_mutex[id]);
+
+         pool[id].push_front( &rc);
+
+         pthread_mutex_unlock(&request_mutex[id]);
+    }
+
+
