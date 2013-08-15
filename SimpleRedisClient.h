@@ -25,6 +25,7 @@
 
 int read_int(const char* bufer,char delimiter,int* delta);
 int read_int(const char* bufer,char delimiter);
+  
 
 class SimpleRedisClient
 {
@@ -45,8 +46,13 @@ class SimpleRedisClient
     int version_patch = -1;
     
     
-    char* data = 0;
     unsigned int data_size = 0;
+    
+    char* data = 0;
+    int answer_int = 0;
+    
+    int multibulk_arg = 0;;
+    char** answer_multibulk = 0;
     
     int debug = 0;
 public:
@@ -68,6 +74,8 @@ public:
       bool    operator==(vector3 v);
      */
     
+    char** getMultiBulkData();
+    int getMultiBulkDataAmount() const;
     
     /**
      * Ни ключь ни значение не должны содержать "\r\n"
@@ -120,7 +128,7 @@ public:
      * Или по указаному адресу будут уже другие данные либо мусор.
      */
     char* operator[] (const char *key);
-    char* operator[] (char *key);
+    
     
     /**
      * Равносильно методу getData()
@@ -252,6 +260,7 @@ public:
     int srem(const char *key, const char *member);
     int srem_printf(const char *format, ...);
 
+    int smembers(const char *key);
     
     /**
      * Returns the remaining time to live of a key that has a timeout.
@@ -280,9 +289,10 @@ public:
      * Или по указаному адресу будут уже другие данные либо мусор. 
      */
     char* getData() const;
+    char* getData(int i) const;
     
     int getDataSize() const;
-    
+     
     void setBuferSize(int size);
     int getBuferSize();
     

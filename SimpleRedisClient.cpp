@@ -206,6 +206,13 @@ int read_int(const char* bufer,char delimiter)
         
         data = 0;
         data_size = 0;
+        
+        if(answer_multibulk != 0)
+        {
+            delete answer_multibulk; 
+        }
+        multibulk_arg = -1;
+        answer_multibulk = 0;
 
         bzero(bufer,bufer_size);
         va_list ap;
@@ -276,8 +283,8 @@ int read_int(const char* bufer,char delimiter)
                         data[data_size] = 0;
                     return rc;
                 case RC_INT:
-                    printf("\x1b[31mREDIS RC_INT:%s\x1b[0m\n", bufer);
-                        data = bufer;
+                    if(debug) printf("\x1b[33mREDIS RC_INT:%s\x1b[0m\n", bufer);
+                        data = bufer+1;
                         data_size = rc;
                     return rc;
                 case RC_BULK:
@@ -306,9 +313,36 @@ int read_int(const char* bufer,char delimiter)
 
                     return rc;
                 case RC_MULTIBULK:
-                    printf("\x1b[31mREDIS RC_MULTIBULK:%s\x1b[0m\n", bufer);
+                    if(debug) printf("\x1b[33mREDIS RC_MULTIBULK:%s\x1b[0m\n", bufer);
                         data = bufer;
                         data_size = rc;
+                        
+                        p = bufer;
+                        p++;
+                        int delta = 0;
+                        multibulk_arg =  read_int(p, '\r', &delta);
+                        answer_multibulk = new char*[multibulk_arg];
+                        
+                        p+= delta + 4;
+                          
+                        for(int i =0; i< multibulk_arg; i++)
+                        {
+                            len = 0; 
+                            while(*p != '\r') {
+                                len = (len*10)+(*p - '0');
+                                p++;
+                            }
+                            
+                            p++;
+                            p++;
+                            answer_multibulk[i] = p; 
+                            
+                            p+= len;
+                            *p = 0;
+                            p+= 3; 
+                        }
+                          
+                        
                     return rc;
             }
 
@@ -476,7 +510,40 @@ int read_int(const char* bufer,char delimiter)
         return fd;
     }
 
+    int SimpleRedisClient::smembers(const char *key)
+    { 
+      return redis_send(RC_MULTIBULK, "SMEMBERS %s\r\n", key);
+    }
 
+    
+    char** SimpleRedisClient::getMultiBulkData()
+    {
+        return answer_multibulk;
+    }
+    
+    /**
+     * Вернёт количество ответов. Или -1 если последняя операция вернула что либо кроме множества ответов.
+     * @return 
+     */
+    int SimpleRedisClient::getMultiBulkDataAmount() const
+    {
+        return multibulk_arg;
+    }
+    
+    /**
+     * Работает только после запроса данных которые возвращаются как множество ответов
+     * @param i Номер ответа в множестве отвкетов
+     * @return Вернёт ноль в случаи ошибки или указатель на данные
+     */
+    char* SimpleRedisClient::getData(int i) const
+    {
+        if(multibulk_arg > i)
+        {
+            return answer_multibulk[i];
+        } 
+        return 0;
+    }
+    
     /**
      * Ни ключь ни значение не должны содержать "\r\n"
      * @param key
@@ -600,11 +667,6 @@ int read_int(const char* bufer,char delimiter)
         return getData();
     }
 
-    char* SimpleRedisClient::operator[] (char *key)
-    {
-        redis_send( RC_BULK, "GET %s\r\n", key);
-        return getData();
-    }
 
 
     SimpleRedisClient::operator char* () const
