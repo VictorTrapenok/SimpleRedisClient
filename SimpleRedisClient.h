@@ -75,7 +75,7 @@ public:
      */
     
     char** getMultiBulkData();
-    int getMultiBulkDataAmount() const;
+    int getMultiBulkDataAmount();
     
     /**
      * Ни ключь ни значение не должны содержать "\r\n"

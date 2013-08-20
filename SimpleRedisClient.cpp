@@ -231,7 +231,7 @@ int read_int(const char* bufer,char delimiter)
             return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
         }
 
-        if(debug > 3 || 1) printf("SEND:%s",bufer);
+        if(debug > 3 ) printf("SEND:%s",bufer);
         rc = send_data(bufer);
 
         if (rc != (int) strlen(bufer))
@@ -256,7 +256,7 @@ int read_int(const char* bufer,char delimiter)
                 return CR_ERR_RECV;
             }
 
-            if(debug > 3 || 1) printf("REDIS BUF: R:%d S:%s",rc, bufer);
+            if(debug > 3 ) printf("REDIS BUF: R:%d S:%s",rc, bufer);
 
             char prefix = bufer[0];
 
@@ -510,6 +510,15 @@ int read_int(const char* bufer,char delimiter)
         return fd;
     }
 
+    /**
+     * SMEMBERS key
+     * Время выполнения: O(N).
+     * Возвращает все члены множества, сохранённого в указанном ключе. Эта команда - просто упрощённый синтаксис для SINTER.
+     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-smembers
+     * @see http://redis.io/commands/smembers
+     * @param key
+     * @return 
+     */
     int SimpleRedisClient::smembers(const char *key)
     { 
       return redis_send(RC_MULTIBULK, "SMEMBERS %s\r\n", key);
@@ -525,7 +534,7 @@ int read_int(const char* bufer,char delimiter)
      * Вернёт количество ответов. Или -1 если последняя операция вернула что либо кроме множества ответов.
      * @return 
      */
-    int SimpleRedisClient::getMultiBulkDataAmount() const
+    int SimpleRedisClient::getMultiBulkDataAmount() 
     {
         return multibulk_arg;
     }
@@ -757,6 +766,14 @@ int read_int(const char* bufer,char delimiter)
       return redis_send( RC_INT, "EXISTS %s\r\n", key);
     }
 
+    /**
+     * Время выполнения: O(1)
+     * Удаление указанных ключей. Если переданный ключ не существует, операция для него не выполняется. Команда возвращает количество удалённых ключей.
+     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-del
+     * @see http://redis.io/commands/del
+     * @param key
+     * @return 
+     */
     int SimpleRedisClient::del( const char *key)
     {
       return redis_send( RC_INT, "DEL %s\r\n", key);
@@ -1024,28 +1041,28 @@ int read_int(const char* bufer,char delimiter)
 
 
          int id = random_id%pool_index_size;
-         printf("RedisClientConnectionPool::grab:%d -> %d\n",random_id, id);
+         //printf("RedisClientConnectionPool::grab:%d -> %d\n",random_id, id);
          pthread_mutex_lock(&request_mutex[id]);
 
-         printf("RedisClientConnectionPool::grab:lock\n");
+         //printf("RedisClientConnectionPool::grab:lock\n");
 
          SimpleRedisClient* rc;
          if(!pool[id].empty())
          {
-             printf("!pool[id].empty()\n");
+             //printf("!pool[id].empty()\n");
              rc = *pool[id].begin();
-             printf("pool[id].pop_front()\n");
+             //printf("pool[id].pop_front()\n");
              pool[id].pop_front();
          }
          else
          {
-             printf("pool[id].empty()\n");
+             //printf("pool[id].empty()\n");
              rc = new SimpleRedisClient();
              rc->redis_conect();
          }
-         printf("RedisClientConnectionPool::grab:unlock\n");
+         //printf("RedisClientConnectionPool::grab:unlock\n");
 
-         pthread_mutex_unlock(&request_mutex[id]);
+         pthread_mutex_unlock(&request_mutex[id]); 
 
          return *rc;
     }
