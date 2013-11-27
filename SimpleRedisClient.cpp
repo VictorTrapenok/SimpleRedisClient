@@ -32,8 +32,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "backtrace.h"
+ 
 
 #include "SimpleRedisClient.h"
 
@@ -290,8 +289,7 @@ int read_int(const char* bufer,char delimiter)
 
             if (recvtype != RC_ANY && prefix != recvtype && prefix != RC_ERROR)
             {
-                    printf("\x1b[31m[fd=%d]REDIS RC_ERR_PROTOCOL[%c]:%s\x1b[0m\n",fd, recvtype, bufer); 
-                    print_backtrace(bufer);
+                    printf("\x1b[31m[fd=%d]REDIS RC_ERR_PROTOCOL[%c]:%s\x1b[0m\n",fd, recvtype, bufer);  
                     return RC_ERR_PROTOCOL;
             }
 
@@ -303,8 +301,7 @@ int read_int(const char* bufer,char delimiter)
                 case RC_ERROR:
                     printf("\x1b[31mREDIS[fd=%d] RC_ERROR:%s\x1b[0m\n",fd,bufer);
                         data = bufer;
-                        data_size = rc;
-                        print_backtrace(bufer);
+                        data_size = rc; 
                     return rc;
                 case RC_INLINE:
                     if(debug) printf("\x1b[33mREDIS[fd=%d] RC_INLINE:%s\x1b[0m\n", fd,bufer);
@@ -383,8 +380,7 @@ int read_int(const char* bufer,char delimiter)
             return RC_ERR_CONECTION_CLOSE; // Соединение закрыто
         }
         else
-        {
-            print_backtrace("Не пришли данные от redis[RC_ERR]");
+        { 
             return RC_ERR; // error
         }
     }
