@@ -33,15 +33,28 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "backtrace.h"
 
 #include "SimpleRedisClient.h"
 
-
+/**
+ * Читает целое число из строки, если ошибка то вернёт -1
+ * @param bufer Строка
+ * @param delimiter Конец для числа
+ * @param delta Количество символов занятое числом и разделителем
+ * @return 
+ */
 int read_int(const char* bufer,char delimiter,int* delta)
 {
     const char* p = bufer;
     int len = 0;
-    int d =0;
+    int d = 0;
+    
+    if(*p == '0' )
+    {
+        (*delta)++;
+        return 0;
+    }
 
     while(*p != delimiter)
     {
@@ -49,11 +62,12 @@ int read_int(const char* bufer,char delimiter,int* delta)
         {
             return -1;
         }
-
+        
         len = (len*10)+(*p - '0');
         p++;
-        delta++;
+        (*delta)++;
         d++;
+        
         if(d > 7)
         {
             return -1;
@@ -64,11 +78,16 @@ int read_int(const char* bufer,char delimiter,int* delta)
 }
 
 int read_int(const char* bufer,char delimiter)
-{
+{ 
     const char* p = bufer;
     int len = 0;
     int delta = 0;
 
+    if(*p == '0' )
+    {
+        return 0;
+    }
+    
     while(*p != delimiter)
     {
         if(*p > '9' || *p < '0')
@@ -195,7 +214,16 @@ int read_int(const char* bufer,char delimiter)
 
         return select(fd+1, NULL, &fds, NULL, &tv);
     }
+    
+    void SimpleRedisClient::LogLevel(int l)
+    {
+        debug = l;
+    }
 
+    int SimpleRedisClient::LogLevel(void)
+    {
+        return debug;
+    }
 
     int SimpleRedisClient::redis_send(char recvtype, const char *format, ...)
     {
@@ -214,10 +242,10 @@ int read_int(const char* bufer,char delimiter)
         multibulk_arg = -1;
         answer_multibulk = 0;
 
-        bzero(bufer,bufer_size);
         va_list ap;
         va_start(ap, format);
 
+        bzero(bufer,bufer_size);
         int  rc = vsnprintf(bufer, bufer_size, format, ap);
         va_end(ap);
 
@@ -231,7 +259,7 @@ int read_int(const char* bufer,char delimiter)
             return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
         }
 
-        if(debug > 3 ) printf("SEND:%s",bufer);
+        if(debug > 3  ) printf("SEND:%s",bufer);
         rc = send_data(bufer);
 
         if (rc != (int) strlen(bufer))
@@ -256,13 +284,14 @@ int read_int(const char* bufer,char delimiter)
                 return CR_ERR_RECV;
             }
 
-            if(debug > 3 ) printf("REDIS BUF: R:%d S:%s",rc, bufer);
+            if(debug > 3 && 1) printf("REDIS BUF: recv:%d bufer[%s]",rc, bufer);
 
             char prefix = bufer[0];
 
             if (recvtype != RC_ANY && prefix != recvtype && prefix != RC_ERROR)
             {
-                    printf("\x1b[31mREDIS RC_ERR_PROTOCOL:%s\x1b[0m\n",bufer);
+                    printf("\x1b[31m[fd=%d]REDIS RC_ERR_PROTOCOL[%c]:%s\x1b[0m\n",fd, recvtype, bufer); 
+                    print_backtrace(bufer);
                     return RC_ERR_PROTOCOL;
             }
 
@@ -272,23 +301,24 @@ int read_int(const char* bufer,char delimiter)
             switch (prefix)
             {
                 case RC_ERROR:
-                    printf("\x1b[31mREDIS RC_ERROR:%s\x1b[0m\n",bufer);
+                    printf("\x1b[31mREDIS[fd=%d] RC_ERROR:%s\x1b[0m\n",fd,bufer);
                         data = bufer;
                         data_size = rc;
+                        print_backtrace(bufer);
                     return rc;
                 case RC_INLINE:
-                    if(debug) printf("\x1b[33mREDIS RC_INLINE:%s\x1b[0m\n", bufer);
+                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_INLINE:%s\x1b[0m\n", fd,bufer);
                         data_size = strlen(bufer+1)-2;
                         data = bufer+1;
                         data[data_size] = 0;
                     return rc;
                 case RC_INT:
-                    if(debug) printf("\x1b[33mREDIS RC_INT:%s\x1b[0m\n", bufer);
+                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_INT:%s\x1b[0m\n",fd, bufer);
                         data = bufer+1;
                         data_size = rc;
                     return rc;
                 case RC_BULK:
-                    if(debug) printf("\x1b[33mREDIS RC_BULK:%s\x1b[0m\n", bufer);
+                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_BULK:%s\x1b[0m\n",fd, bufer);
 
                         p = bufer;
                         p++;
@@ -297,6 +327,7 @@ int read_int(const char* bufer,char delimiter)
                         {
                             data = 0;
                             data_size = -1;
+                            return rc;
                         }
 
                         while(*p != '\r') {
@@ -313,7 +344,7 @@ int read_int(const char* bufer,char delimiter)
 
                     return rc;
                 case RC_MULTIBULK:
-                    if(debug) printf("\x1b[33mREDIS RC_MULTIBULK:%s\x1b[0m\n", bufer);
+                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_MULTIBULK[Len=%d]:%s\x1b[0m\n", fd, rc, bufer);
                         data = bufer;
                         data_size = rc;
                         
@@ -321,10 +352,11 @@ int read_int(const char* bufer,char delimiter)
                         p++;
                         int delta = 0;
                         multibulk_arg =  read_int(p, '\r', &delta);
+                        
                         answer_multibulk = new char*[multibulk_arg];
                         
-                        p+= delta + 4;
-                          
+                        p+= delta + 3;
+                        
                         for(int i =0; i< multibulk_arg; i++)
                         {
                             len = 0; 
@@ -333,8 +365,7 @@ int read_int(const char* bufer,char delimiter)
                                 p++;
                             }
                             
-                            p++;
-                            p++;
+                            p+=2;
                             answer_multibulk[i] = p; 
                             
                             p+= len;
@@ -342,7 +373,6 @@ int read_int(const char* bufer,char delimiter)
                             p+= 3; 
                         }
                           
-                        
                     return rc;
             }
 
@@ -354,6 +384,7 @@ int read_int(const char* bufer,char delimiter)
         }
         else
         {
+            print_backtrace("Не пришли данные от redis[RC_ERR]");
             return RC_ERR; // error
         }
     }
@@ -442,7 +473,7 @@ int read_int(const char* bufer,char delimiter)
         setTimeout(TimeOut);
         return redis_conect();
     }
-
+  
     int SimpleRedisClient::redis_conect()
     {
         if(host == 0)
@@ -507,6 +538,8 @@ int read_int(const char* bufer,char delimiter)
             }
         }
         if(debug >1) printf("open ok %d\n", fd);
+          
+        
         return fd;
     }
 
@@ -564,11 +597,12 @@ int read_int(const char* bufer,char delimiter)
         return redis_send( RC_INLINE, "SET %s %s\r\n",   key, val);
     }
 
-    int SimpleRedisClient::set_printf(const char *key, const char *format, ...)
+    /*int SimpleRedisClient::set_printf(const char *key, const char *format, ...)
     {
         va_list ap;
         va_start(ap, format);
 
+        bzero(buf, bufer_size);
         int  rc = vsnprintf(buf, bufer_size, format, ap);
         va_end(ap);
 
@@ -584,15 +618,18 @@ int read_int(const char* bufer,char delimiter)
 
         rc = redis_send( RC_INLINE, "SET %s %s\r\n",   key, buf);
         return rc;
-    }
+    }*/
 
     int SimpleRedisClient::set_printf(const char *format, ...)
     {
         va_list ap;
         va_start(ap, format);
 
+        bzero(buf, bufer_size);
         int  rc = vsnprintf(buf, bufer_size, format, ap);
         va_end(ap);
+        
+        printf("set_printf test-buf:%s\n", buf);
 
         if( rc >= bufer_size )
         {
@@ -625,6 +662,7 @@ int read_int(const char* bufer,char delimiter)
         va_list ap;
         va_start(ap, format);
 
+        bzero(buf, bufer_size);
         int  rc = vsnprintf(buf, bufer_size, format, ap);
         va_end(ap);
 
@@ -647,6 +685,7 @@ int read_int(const char* bufer,char delimiter)
         va_list ap;
         va_start(ap, format);
 
+        bzero(buf, bufer_size);
         int  rc = vsnprintf(buf, bufer_size, format, ap);
         va_end(ap);
 
@@ -667,6 +706,29 @@ int read_int(const char* bufer,char delimiter)
     int SimpleRedisClient::get(const char *key)
     {
       return redis_send( RC_BULK, "GET %s\r\n", key);
+    }
+    
+    
+    int SimpleRedisClient::get_printf( const char *format, ...)
+    {
+        va_list ap;
+        va_start(ap, format);
+
+        bzero(buf, bufer_size);
+        int  rc = vsnprintf(buf, bufer_size, format, ap);
+        va_end(ap);
+
+        if( rc >= bufer_size )
+        {
+            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
+        }
+
+        if(rc <  0)
+        {
+            return RC_ERR_DATA_FORMAT;
+        }
+
+        return redis_send(RC_BULK, "GET %s\r\n", buf); 
     }
 
 
@@ -698,8 +760,25 @@ int read_int(const char* bufer,char delimiter)
     }
 
     SimpleRedisClient::operator int () const
-    {
-        return read_int(getData(), '\r');
+    { 
+        printf("SimpleRedisClient::operator int (%d) \n", data_size);
+        if(data_size < 1)
+        {
+             printf("SimpleRedisClient::operator int (%d) \n", data_size);
+            return data_size;
+        }
+        
+        if(getData() == 0)
+        {
+            return -1;
+        }
+        
+        int r = read_int(getData(), '\r');
+        
+        
+        printf("SimpleRedisClient::operator int (%d|res=%d) \n", data_size, r);
+        
+        return r;
     }
 
     int SimpleRedisClient::getset(const char *key, const char *set_val, char **get_val)
@@ -805,6 +884,11 @@ int read_int(const char* bufer,char delimiter)
     int SimpleRedisClient::randomkey( char **key)
     {
       return redis_send( RC_BULK, "RANDOMKEY\r\n");
+    }
+    
+    int SimpleRedisClient::flushall(void)
+    {
+        return redis_send( RC_INLINE, "FLUSHALL\r\n");
     }
 
     int SimpleRedisClient::rename( const char *key, const char *new_key_name)
@@ -918,6 +1002,7 @@ int read_int(const char* bufer,char delimiter)
         va_list ap;
         va_start(ap, format);
 
+        bzero(buf, bufer_size);
         int  rc = vsnprintf(buf, bufer_size, format, ap);
         va_end(ap);
 
@@ -953,6 +1038,7 @@ int read_int(const char* bufer,char delimiter)
         va_list ap;
         va_start(ap, format);
 
+        bzero(buf, bufer_size);
         int  rc = vsnprintf(buf, bufer_size, format, ap);
         va_end(ap);
 
@@ -968,113 +1054,3 @@ int read_int(const char* bufer,char delimiter)
 
         return redis_send(RC_INT, "SREM %s\r\n", buf);
     }
-
-    /**
-     * RedisClientConnectionPool
-     */
-
-    RedisClientConnectionPool::RedisClientConnectionPool()
-    {
-
-    }
-
-    /**
-     * Чем больше Pool_index_size тем меньше вероятность того что один поток будет ожидать завершения выполнения другого потока в этой секции.
-     * @param Pool_index_size
-     */
-    RedisClientConnectionPool::RedisClientConnectionPool(int Pool_index_size)
-    {
-         setPoolIndexSize(Pool_index_size);
-    }
-
-    /**
-     * Операция убъёт все откытые соединения с редисом и установит pool_index_size в новое значение
-     * @param Pool_index_size значение не должно быть меньше единицы
-     */
-    void RedisClientConnectionPool::setPoolIndexSize(int Pool_index_size)
-    {
-        printf("setPoolIndexSize:%d",Pool_index_size);
-
-        if(Pool_index_size < 1)
-        {
-            Pool_index_size = 1;
-        }
-
-        if(pool != 0)
-        {
-             return;
-             for(int i=0; i< pool_index_size; i++)
-             {
-                 pool[i].clear();
-             }
-             //delete pool; @todo Разобратся почему не удаляется
-             delete request_mutex;
-        }
-
-        pool_index_size = Pool_index_size;
-
-        pool = new std::list<SimpleRedisClient*>[pool_index_size];
-        request_mutex = new pthread_mutex_t[pool_index_size];
-
-        for(int i=0; i<pool_index_size; i++ )
-        {
-            pthread_mutex_init(&request_mutex[i],NULL);
-        }
-    }
-
-    RedisClientConnectionPool::~RedisClientConnectionPool()
-    {
-        if(pool != 0)
-        {
-            for(int i=0; i< pool_index_size; i++)
-            {
-                 pool[i].clear();
-            }
-            //delete pool;
-            delete request_mutex;
-        }
-    }
-
-
-    SimpleRedisClient& RedisClientConnectionPool::grab(int random_id)
-    {
-
-
-         int id = random_id%pool_index_size;
-         //printf("RedisClientConnectionPool::grab:%d -> %d\n",random_id, id);
-         pthread_mutex_lock(&request_mutex[id]);
-
-         //printf("RedisClientConnectionPool::grab:lock\n");
-
-         SimpleRedisClient* rc;
-         if(!pool[id].empty())
-         {
-             //printf("!pool[id].empty()\n");
-             rc = *pool[id].begin();
-             //printf("pool[id].pop_front()\n");
-             pool[id].pop_front();
-         }
-         else
-         {
-             //printf("pool[id].empty()\n");
-             rc = new SimpleRedisClient();
-             rc->redis_conect();
-         }
-         //printf("RedisClientConnectionPool::grab:unlock\n");
-
-         pthread_mutex_unlock(&request_mutex[id]); 
-
-         return *rc;
-    }
-
-    void RedisClientConnectionPool::release(SimpleRedisClient& rc, int random_id)
-    {
-         int id = random_id%pool_index_size;
-         pthread_mutex_lock(&request_mutex[id]);
-
-         pool[id].push_front( &rc);
-
-         pthread_mutex_unlock(&request_mutex[id]);
-    }
-
-

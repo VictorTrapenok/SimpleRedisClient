@@ -55,7 +55,12 @@ class SimpleRedisClient
     char** answer_multibulk = 0;
     
     int debug = 0;
+    
+    
 public:
+    
+    void LogLevel(int);
+    int LogLevel(void);
 
     SimpleRedisClient();
     
@@ -100,8 +105,8 @@ public:
      * @param format
      * @param ... значение
      * @return 
-     */
     int set_printf(const char *key, const char *format, ...);
+     */
     
     /**
      * Выполняет установку значения в редис
@@ -185,7 +190,9 @@ public:
     int setex_printf(const char *format, ...);
 
     int get(const char *key);
-
+    int get_printf(  const char *format, ...);
+    
+    
     /**
      * Set the string value of a key and return its old value
      * @param key
@@ -253,6 +260,7 @@ public:
     int expire( const char *key, int secs);
 
      
+    int flushall(void);
 
     int sadd(const char *key, const char *member);
     int sadd_printf(const char *format, ...);
@@ -314,35 +322,6 @@ protected:
 };
 
 
-
-class RedisClientConnectionPool
-{ 
-    
-    std::list<SimpleRedisClient*>* pool;
-    pthread_mutex_t* request_mutex;
-    
-    int pool_index_size = 0; 
-public:
-    RedisClientConnectionPool();
-    
-    /**
-     * Чем больше Pool_index_size тем меньше вероятность того что один поток будет ожидать завершения выполнения другого потока в этой секции.
-     * @param Pool_index_size
-     */
-    RedisClientConnectionPool(int Pool_index_size);
-    
-    /**
-     * Операция убъёт все откытые соединения с редисом и установит pool_index_size в новое значение 
-     * @param Pool_index_size значение не должно быть меньше единицы
-     */
-    void setPoolIndexSize(int Pool_index_size);
-    ~RedisClientConnectionPool();
-    SimpleRedisClient& grab(int random_id);    
-    void release(SimpleRedisClient& rc, int random_id);
-    
-    
-    
-};
 
 #endif	/* SIMPLEREDISCLIENT_H */
 
