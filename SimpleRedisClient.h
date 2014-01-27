@@ -11,6 +11,7 @@
 
 #include <list>
 
+#define RC_NULL 0
 #define RC_ERR -1
   
 #define RC_ERR_CONECTION_CLOSE -2
@@ -45,7 +46,10 @@ class SimpleRedisClient
     int version_minor = -1;
     int version_patch = -1;
     
-    
+    /**
+     * Хранит количество пришедших данных в ответе.
+     * Для списка это колво элементов для остальных типов это колво байт.
+     */
     unsigned int data_size = 0;
     
     char* data = 0;
@@ -200,15 +204,15 @@ public:
      * @param get_val
      * @return 
      */
-    int getset(const char *key, const char *set_val, char **get_val);
-
+    int getset(const char *key, const char *set_val);
+    int getset_printf(const char *format, ...);
 
     /**
      * Ping the server
      */
     int ping();
 
-    int echo(const char *message, char **reply);
+    int echo(const char *message);
 
     int quit();
 
@@ -216,7 +220,7 @@ public:
  
 
     int setnx(const char *key, const char *val);
-    
+    int setnx_printf(const char *format, ...);
 
     /**
      * http://redis.io/commands
@@ -238,26 +242,33 @@ public:
      */ 
 
     int append(const char *key, const char *val);
+    int append_printf(const char *format, ...);
 
-    int substr( const char *key, int start, int end, char **substr);
+    int substr( const char *key, int start, int end);
 
     int exists( const char *key);
+    int exists_printf(const char *format, ...);
 
     int del( const char *key);
+    int del_printf(const char *format, ...);
 
     int type( const char *key);
 
-    int keys(const char *pattern, char ***keyv);
+    int keys(const char *pattern);
+    int keys_printf(const char *format, ...);
 
-    int randomkey( char **key);
+    int randomkey();
 
     int rename( const char *key, const char *new_key_name);
+    int rename_printf(const char *format, ...);
 
     int renamenx( const char *key, const char *new_key_name);
+    int renamenx_printf(const char *format, ...);
 
     int dbsize();
 
     int expire( const char *key, int secs);
+    int expire_printf(const char *format, ...);
 
      
     int flushall(void);
@@ -269,6 +280,32 @@ public:
     int srem_printf(const char *format, ...);
 
     int smembers(const char *key);
+    int smembers_printf(const char *format, ...);
+    
+    int scard(const char *key);
+    int scard_printf(const char *format, ...);
+    
+    int lpush(const char *key, const char *member);
+    int lpush_printf(const char *format, ...);
+    
+    int rpush(const char *key, const char *member);
+    int rpush_printf(const char *format, ...);
+    
+    int lpop(const char *key);
+    int lpop_printf(const char *format, ...);
+    
+    int rpop(const char *key);
+    int rpop_printf(const char *format, ...);
+    
+    int llen(const char *key);
+    int llen_printf(const char *format, ...);
+    
+    int lrem(const char *key, int n,const char* val);
+    int lrem_printf(const char *format, ...);
+    
+    int lrange(const char *key, int start, int stop);
+    int lrange_printf(const char *format, ...);
+    
     
     /**
      * Returns the remaining time to live of a key that has a timeout.
@@ -276,6 +313,7 @@ public:
      * @return 
      */
     int ttl( const char *key);
+    int ttl_printf(const char *format, ...);
     
     int delta( int delta, const char *key);
     
@@ -299,6 +337,10 @@ public:
     char* getData() const;
     char* getData(int i) const;
     
+    /**
+     * Возвращает количество пришедших данных в ответе.
+     * Для списка это колво элементов для остальных типов это колво байт.
+     */
     int getDataSize() const;
      
     void setBuferSize(int size);

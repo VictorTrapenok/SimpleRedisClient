@@ -32,7 +32,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
- 
+
+#include "backtrace.h"
 
 #include "SimpleRedisClient.h"
 
@@ -133,6 +134,17 @@ int read_int(const char* bufer,char delimiter)
     #define RC_NONE ' '
 
 
+    #define REDIS_PRINTF_MACRO_CODE(type, comand) va_list ap;\
+                        va_start(ap, format);\
+                        bzero(buf, bufer_size);\
+                        int  rc = vsnprintf(buf, bufer_size, format, ap);\
+                        va_end(ap);\
+                        printf("CODE PRINTF %s test-buf:%s\n", comand, buf);\
+                        if( rc >= bufer_size ) return RC_ERR_BUFER_OVERFLOW;\
+                        if(rc <  0) return RC_ERR_DATA_FORMAT;\
+                        rc = redis_send( type, "%s %s\r\n", comand, buf);\
+                        return rc;\
+       
 
     SimpleRedisClient::SimpleRedisClient()
     {
@@ -289,8 +301,15 @@ int read_int(const char* bufer,char delimiter)
 
             if (recvtype != RC_ANY && prefix != recvtype && prefix != RC_ERROR)
             {
-                    printf("\x1b[31m[fd=%d]REDIS RC_ERR_PROTOCOL[%c]:%s\x1b[0m\n",fd, recvtype, bufer);  
-                    return RC_ERR_PROTOCOL;
+                /*if(rc == 5 && bufer[0] == '$' && bufer[1] == '-' && bufer[2] == '1' )
+                {
+                    // Ответ пустой, случается просто если нет ключа а не ошибка.
+                    //return RC_NULL;
+                }*/
+                
+                printf("\x1b[31m[fd=%d]REDIS RC_ERR_PROTOCOL[%c]:%s\x1b[0m\n",fd, recvtype, bufer); 
+                print_backtrace(bufer);
+                return RC_ERR_PROTOCOL;
             }
 
             char *p;
@@ -301,7 +320,8 @@ int read_int(const char* bufer,char delimiter)
                 case RC_ERROR:
                     printf("\x1b[31mREDIS[fd=%d] RC_ERROR:%s\x1b[0m\n",fd,bufer);
                         data = bufer;
-                        data_size = rc; 
+                        data_size = rc;
+                        print_backtrace(bufer);
                     return rc;
                 case RC_INLINE:
                     if(debug) printf("\x1b[33mREDIS[fd=%d] RC_INLINE:%s\x1b[0m\n", fd,bufer);
@@ -343,12 +363,19 @@ int read_int(const char* bufer,char delimiter)
                 case RC_MULTIBULK:
                     if(debug) printf("\x1b[33mREDIS[fd=%d] RC_MULTIBULK[Len=%d]:%s\x1b[0m\n", fd, rc, bufer);
                         data = bufer;
-                        data_size = rc;
                         
                         p = bufer;
                         p++;
                         int delta = 0;
                         multibulk_arg =  read_int(p, '\r', &delta);
+                        if(multibulk_arg == 0)
+                        {
+                            data = 0;
+                            data_size = -1;
+                            return rc;
+                        }
+                        
+                        data_size = multibulk_arg;
                         
                         answer_multibulk = new char*[multibulk_arg];
                         
@@ -380,7 +407,8 @@ int read_int(const char* bufer,char delimiter)
             return RC_ERR_CONECTION_CLOSE; // Соединение закрыто
         }
         else
-        { 
+        {
+            print_backtrace("Не пришли данные от redis[RC_ERR]");
             return RC_ERR; // error
         }
     }
@@ -539,21 +567,6 @@ int read_int(const char* bufer,char delimiter)
         return fd;
     }
 
-    /**
-     * SMEMBERS key
-     * Время выполнения: O(N).
-     * Возвращает все члены множества, сохранённого в указанном ключе. Эта команда - просто упрощённый синтаксис для SINTER.
-     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-smembers
-     * @see http://redis.io/commands/smembers
-     * @param key
-     * @return 
-     */
-    int SimpleRedisClient::smembers(const char *key)
-    { 
-      return redis_send(RC_MULTIBULK, "SMEMBERS %s\r\n", key);
-    }
-
-    
     char** SimpleRedisClient::getMultiBulkData()
     {
         return answer_multibulk;
@@ -583,6 +596,47 @@ int read_int(const char* bufer,char delimiter)
     }
     
     /**
+     * Возвращает все члены множества, сохранённого в указанном ключе. Эта команда - просто упрощённый синтаксис для SINTER.
+     * SMEMBERS key
+     * Время выполнения: O(N).
+     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-smembers
+     * @see http://redis.io/commands/smembers
+     * @param key
+     * @return 
+     */
+    int SimpleRedisClient::smembers(const char *key)
+    { 
+      return redis_send(RC_MULTIBULK, "SMEMBERS %s\r\n", key);
+    }
+
+    int SimpleRedisClient::smembers_printf(const char *format, ...)
+    { 
+        REDIS_PRINTF_MACRO_CODE(RC_MULTIBULK, "SMEMBERS")
+    }
+    
+    /**
+     * Returns the set cardinality (number of elements) of the set stored at key.
+     * @see http://redis.io/commands/scard
+     * @param key
+     * @return 
+     */
+    int SimpleRedisClient::scard(const char *key)
+    { 
+      return redis_send(RC_MULTIBULK, "SCARD %s\r\n", key);
+    }
+
+    /**
+     * Returns the set cardinality (number of elements) of the set stored at key.
+     * @see http://redis.io/commands/scard
+     * @param key
+     * @return 
+     */
+    int SimpleRedisClient::scard_printf(const char *format, ...)
+    { 
+        REDIS_PRINTF_MACRO_CODE(RC_MULTIBULK, "SCARD")
+    }
+    
+    /**
      * Ни ключь ни значение не должны содержать "\r\n"
      * @param key
      * @param val
@@ -593,52 +647,9 @@ int read_int(const char* bufer,char delimiter)
         return redis_send( RC_INLINE, "SET %s %s\r\n",   key, val);
     }
 
-    /*int SimpleRedisClient::set_printf(const char *key, const char *format, ...)
-    {
-        va_list ap;
-        va_start(ap, format);
-
-        bzero(buf, bufer_size);
-        int  rc = vsnprintf(buf, bufer_size, format, ap);
-        va_end(ap);
-
-        if( rc >= bufer_size )
-        {
-            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
-        }
-
-        if(rc <  0)
-        {
-            return RC_ERR_DATA_FORMAT;
-        }
-
-        rc = redis_send( RC_INLINE, "SET %s %s\r\n",   key, buf);
-        return rc;
-    }*/
-
     int SimpleRedisClient::set_printf(const char *format, ...)
     {
-        va_list ap;
-        va_start(ap, format);
-
-        bzero(buf, bufer_size);
-        int  rc = vsnprintf(buf, bufer_size, format, ap);
-        va_end(ap);
-        
-        printf("set_printf test-buf:%s\n", buf);
-
-        if( rc >= bufer_size )
-        {
-            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
-        }
-
-        if(rc <  0)
-        {
-            return RC_ERR_DATA_FORMAT;
-        }
-
-        rc = redis_send( RC_INLINE, "SET %s\r\n", buf);
-        return rc;
+        REDIS_PRINTF_MACRO_CODE(RC_INLINE, "SET")
     }
 
     SimpleRedisClient& SimpleRedisClient::operator=(const char *key_val)
@@ -673,29 +684,11 @@ int read_int(const char* bufer,char delimiter)
         }
 
         return redis_send(RC_INLINE, "SETEX %s %d %s\r\n",key, seconds, buf); 
-    }
-
-
+    } 
+    
     int SimpleRedisClient::setex_printf(const char *format, ...)
     {
-        va_list ap;
-        va_start(ap, format);
-
-        bzero(buf, bufer_size);
-        int  rc = vsnprintf(buf, bufer_size, format, ap);
-        va_end(ap);
-
-        if( rc >= bufer_size )
-        {
-            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
-        }
-
-        if(rc <  0)
-        {
-            return RC_ERR_DATA_FORMAT;
-        }
-
-        return redis_send(RC_INLINE, "SETEX %s\r\n", buf); 
+        REDIS_PRINTF_MACRO_CODE(RC_INLINE, "SETEX")
     }
 
 
@@ -707,24 +700,64 @@ int read_int(const char* bufer,char delimiter)
     
     int SimpleRedisClient::get_printf( const char *format, ...)
     {
-        va_list ap;
-        va_start(ap, format);
+        REDIS_PRINTF_MACRO_CODE(RC_BULK, "GET")
+    }
 
-        bzero(buf, bufer_size);
-        int  rc = vsnprintf(buf, bufer_size, format, ap);
-        va_end(ap);
+    /**
+     * Add the specified members to the set stored at key. Specified members that are already a member of this set are ignored. If key does not exist, a new set is created before adding the specified members.
+     * An error is returned when the value stored at key is not a set.
+     * @see http://redis.io/commands/sadd
+     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-sadd
+     * @return 
+     */
+    int SimpleRedisClient::sadd(const char *key, const char *member)
+    {
+      return redis_send(RC_INT, "SADD %s %s\r\n", key, member);
+    }
 
-        if( rc >= bufer_size )
-        {
-            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
-        }
+    /**
+     * Add the specified members to the set stored at key. Specified members that are already a member of this set are ignored. If key does not exist, a new set is created before adding the specified members.
+     * An error is returned when the value stored at key is not a set.
+     * @see http://redis.io/commands/sadd
+     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-sadd
+     * @param format
+     * @param ... Ключь Значение (через пробел, в значении нет пробелов)
+     * @return 
+     */
+    int SimpleRedisClient::sadd_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "SADD")
+    }
+    
+    /**
+     * Remove the specified members from the set stored at key.
+     * Specified members that are not a member of this set are ignored.
+     * If key does not exist, it is treated as an empty set and this command returns 0.
+     * An error is returned when the value stored at key is not a set.
+     * 
+     * @see http://redis.io/commands/srem
+     * @param key
+     * @param member
+     * @return 
+     */
+    int SimpleRedisClient::srem(const char *key, const char *member)
+    {
+        return redis_send(RC_INT, "SREM %s %s\r\n", key, member);
+    }
 
-        if(rc <  0)
-        {
-            return RC_ERR_DATA_FORMAT;
-        }
-
-        return redis_send(RC_BULK, "GET %s\r\n", buf); 
+    /**
+     * Remove the specified members from the set stored at key.
+     * Specified members that are not a member of this set are ignored. If key does not exist, it is treated as an empty set and this command returns 0.
+     * An error is returned when the value stored at key is not a set.
+     * @see http://redis.io/commands/srem
+     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-srem
+     * @param format
+     * @param ... Ключь Значение (через пробел, в значении нет пробелов)
+     * @return 
+     */
+    int SimpleRedisClient::srem_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "SREM")
     }
 
 
@@ -733,28 +766,16 @@ int read_int(const char* bufer,char delimiter)
         redis_send( RC_BULK, "GET %s\r\n", key);
         return getData();
     }
-
-
-
+ 
     SimpleRedisClient::operator char* () const
     {
-
-        /**
-         * Выделет память и скопирует в него последний ответ редиса.
-         * Вернёт указатель на ответ или 0 если последний запрос был с ошибкой.
-         *
-         * Выделеную память надо будет очистить в ручную.
-        char* d = 0;
-        if( data )
-        {
-            char* d = new char[data_size];
-            memcpy(d, data,data_size);
-        }
-        return d;
-         */
         return getData();
     }
 
+    /**
+     * ЗАДОКУМЕНТИРОВАТЬ
+     * @return 
+     */
     SimpleRedisClient::operator int () const
     { 
         printf("SimpleRedisClient::operator int (%d) \n", data_size);
@@ -777,18 +798,22 @@ int read_int(const char* bufer,char delimiter)
         return r;
     }
 
-    int SimpleRedisClient::getset(const char *key, const char *set_val, char **get_val)
+    int SimpleRedisClient::getset(const char *key, const char *set_val)
     {
       return redis_send( RC_BULK, "GETSET %s %s\r\n",   key, set_val);
     }
-
+    
+    int SimpleRedisClient::getset_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_BULK, "GETSET")
+    }
 
     int SimpleRedisClient::ping()
     {
       return redis_send( RC_INLINE, "PING\r\n");
     }
 
-    int SimpleRedisClient::echo(const char *message, char **reply)
+    int SimpleRedisClient::echo(const char *message)
     {
       return redis_send( RC_BULK, "ECHO %s\r\n", message);;
     }
@@ -825,13 +850,22 @@ int read_int(const char* bufer,char delimiter)
       return redis_send( RC_INT, "SETNX %s %s\r\n",  key, val);
     }
 
+    int SimpleRedisClient::setnx_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "SETNX")
+    }
 
     int SimpleRedisClient::append(const char *key, const char *val)
     {
       return redis_send(RC_INT, "APPEND %s %s\r\n",  key, val);
     }
+    
+    int SimpleRedisClient::append_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "APPEND")
+    }
 
-    int SimpleRedisClient::substr( const char *key, int start, int end, char **substr)
+    int SimpleRedisClient::substr( const char *key, int start, int end)
     {
       return redis_send(RC_BULK, "SUBSTR %s %d %d\r\n",   key, start, end);
     }
@@ -841,6 +875,12 @@ int read_int(const char* bufer,char delimiter)
       return redis_send( RC_INT, "EXISTS %s\r\n", key);
     }
 
+    int SimpleRedisClient::exists_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "EXISTS")
+    }
+    
+    
     /**
      * Время выполнения: O(1)
      * Удаление указанных ключей. Если переданный ключ не существует, операция для него не выполняется. Команда возвращает количество удалённых ключей.
@@ -854,6 +894,12 @@ int read_int(const char* bufer,char delimiter)
       return redis_send( RC_INT, "DEL %s\r\n", key);
     }
 
+    int SimpleRedisClient::del_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "DEL")
+    }
+    
+    
     int SimpleRedisClient::type( const char *key)
     {
       return redis_send( RC_INLINE, "TYPE %s\r\n", key);
@@ -872,16 +918,22 @@ int read_int(const char* bufer,char delimiter)
 
     }
 
-    int SimpleRedisClient::keys( const char *pattern, char ***keyv)
+    int SimpleRedisClient::keys( const char *pattern)
     {
       return redis_send(RC_MULTIBULK, "KEYS %s\r\n", pattern);
     }
 
-    int SimpleRedisClient::randomkey( char **key)
+    int SimpleRedisClient::keys_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_MULTIBULK, "KEYS")
+    }
+    
+    
+    int SimpleRedisClient::randomkey()
     {
       return redis_send( RC_BULK, "RANDOMKEY\r\n");
     }
-    
+      
     int SimpleRedisClient::flushall(void)
     {
         return redis_send( RC_INLINE, "FLUSHALL\r\n");
@@ -891,10 +943,20 @@ int read_int(const char* bufer,char delimiter)
     {
       return redis_send( RC_INLINE, "RENAME %s %s\r\n",   key, new_key_name);
     }
+    
+    int SimpleRedisClient::rename_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INLINE, "RENAME")
+    }
 
     int SimpleRedisClient::renamenx( const char *key, const char *new_key_name)
     {
       return redis_send( RC_INT, "RENAMENX %s %s\r\n", key, new_key_name);
+    }
+
+    int SimpleRedisClient::renamenx_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "RENAMENX")
     }
 
     int SimpleRedisClient::dbsize()
@@ -907,11 +969,22 @@ int read_int(const char* bufer,char delimiter)
       return redis_send( RC_INT, "EXPIRE %s %d\r\n", key, secs);
     }
 
+    int SimpleRedisClient::expire_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "EXPIRE")
+    }
+    
+    
     int SimpleRedisClient::ttl( const char *key)
     {
       return redis_send( RC_INT, "TTL %s\r\n", key);
     }
 
+    int SimpleRedisClient::ttl_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "TTL")
+    }
+    
     int SimpleRedisClient::delta( int delta, const char *key)
     {
         if (delta == 1 || delta == -1)
@@ -924,6 +997,81 @@ int read_int(const char* bufer,char delimiter)
         }
     }
 
+    // Списки
+    
+    int SimpleRedisClient::lpush(const char *key, const char *val)
+    {
+      return redis_send( RC_INT, "LPUSH %s %s\r\n", key, val);
+    }
+    
+    int SimpleRedisClient::lpush_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "LPUSH")
+    }
+    
+    int SimpleRedisClient::rpush(const char *key, const char *val)
+    {
+      return redis_send( RC_INT, "RPUSH %s %s\r\n", key, val);
+    }
+    
+    int SimpleRedisClient::rpush_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "RPUSH")
+    }
+    
+    int SimpleRedisClient::lpop(const char *key)
+    {
+      return redis_send( RC_INT, "LPUSH %s\r\n", key);
+    }
+    
+    int SimpleRedisClient::lpop_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_BULK, "LPOP")
+    }
+    
+    int SimpleRedisClient::rpop(const char *key)
+    {
+      return redis_send( RC_INT, "RPUSH %s\r\n", key);
+    }
+    
+    int SimpleRedisClient::rpop_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_BULK, "RPOP")
+    }
+    
+    int SimpleRedisClient::llen(const char *key)
+    {
+      return redis_send( RC_INT, "LLEN %s\r\n", key);
+    }
+    
+    int SimpleRedisClient::llen_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "LLEN")
+    }
+    
+    
+    int SimpleRedisClient::lrem(const char *key, int n,const char* val)
+    {
+      return redis_send( RC_INT, "LLEN %s %d %s\r\n", key, n, val);
+    }
+    
+    int SimpleRedisClient::lrem_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "LREM")
+    }
+    
+    
+    int SimpleRedisClient::lrange(const char *key, int start, int stop)
+    {
+      return redis_send( RC_INT, "LRANGE %s %d %d\r\n", key, start, stop);
+    }
+    
+    int SimpleRedisClient::lrange_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_MULTIBULK, "LRANGE")
+    }
+    
+    
 
     int SimpleRedisClient::operator +=( const char *key)
     {
@@ -978,75 +1126,3 @@ int read_int(const char* bufer,char delimiter)
         return data_size;
     }
 
-
-    int SimpleRedisClient::sadd(const char *key, const char *member)
-    {
-      return redis_send(RC_INT, "SADD %s %s\r\n", key, member);
-    }
-
-    /**
-     * Add the specified members to the set stored at key. Specified members that are already a member of this set are ignored. If key does not exist, a new set is created before adding the specified members.
-     * An error is returned when the value stored at key is not a set.
-     * @see http://redis.io/commands/sadd
-     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-sadd
-     * @param format
-     * @param ... Ключь Значение (через пробел, в значении нет пробелов)
-     * @return 
-     */
-    int SimpleRedisClient::sadd_printf(const char *format, ...)
-    {
-        va_list ap;
-        va_start(ap, format);
-
-        bzero(buf, bufer_size);
-        int  rc = vsnprintf(buf, bufer_size, format, ap);
-        va_end(ap);
-
-        if( rc >= bufer_size )
-        {
-            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
-        }
-
-        if(rc <  0)
-        {
-            return RC_ERR_DATA_FORMAT;
-        }
-
-        return redis_send(RC_INT, "SADD %s\r\n", buf);
-    }
-    
-    int SimpleRedisClient::srem(const char *key, const char *member)
-    {
-        return redis_send(RC_INT, "SREM %s %s\r\n", key, member);
-    }
-
-    /**
-     * Remove the specified members from the set stored at key. Specified members that are not a member of this set are ignored. If key does not exist, it is treated as an empty set and this command returns 0.
-     * An error is returned when the value stored at key is not a set.
-     * @see http://redis.io/commands/srem
-     * @see http://pyha.ru/wiki/index.php?title=Redis:cmd-srem
-     * @param format
-     * @param ... Ключь Значение (через пробел, в значении нет пробелов)
-     * @return 
-     */
-    int SimpleRedisClient::srem_printf(const char *format, ...)
-    {
-        va_list ap;
-        va_start(ap, format);
-
-        bzero(buf, bufer_size);
-        int  rc = vsnprintf(buf, bufer_size, format, ap);
-        va_end(ap);
-
-        if( rc >= bufer_size )
-        {
-            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
-        }
-
-        if(rc <  0)
-        {
-            return RC_ERR_DATA_FORMAT;
-        }
-
-        return redis_send(RC_INT, "SREM %s\r\n", buf);
-    }
