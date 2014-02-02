@@ -1,4 +1,8 @@
+<h1>Клиент для работы с редисом.</h1>
 
+<b>
+This client tested only on Ubuntu, Debian, CentOS. (Этот клиент тестировался только под Ubuntu, Debian, CentOS)
+</b>
 
 <pre>
 int main(int argc, char *argv[])
