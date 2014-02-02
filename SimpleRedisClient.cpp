@@ -39,14 +39,14 @@
 
 /**
  * Читает целое число из строки, если ошибка то вернёт -1
- * @param bufer Строка
+ * @param buffer Строка
  * @param delimiter Конец для числа
  * @param delta Количество символов занятое числом и разделителем
  * @return 
  */
-int read_int(const char* bufer,char delimiter,int* delta)
+int read_int(const char* buffer,char delimiter,int* delta)
 {
-    const char* p = bufer;
+    const char* p = buffer;
     int len = 0;
     int d = 0;
     
@@ -77,9 +77,9 @@ int read_int(const char* bufer,char delimiter,int* delta)
     return len;
 }
 
-int read_int(const char* bufer,char delimiter)
+int read_int(const char* buffer,char delimiter)
 { 
-    const char* p = bufer;
+    const char* p = buffer;
     int len = 0;
     int delta = 0;
 
@@ -107,9 +107,9 @@ int read_int(const char* bufer,char delimiter)
     return len;
 }
 
-int read_int(const char* bufer, int* delta)
+int read_int(const char* buffer, int* delta)
 { 
-    const char* p = bufer;
+    const char* p = buffer;
     int len = 0;
     int d = 0;
     
@@ -169,10 +169,10 @@ int read_int(const char* bufer, int* delta)
 
     #define REDIS_PRINTF_MACRO_CODE(type, comand) va_list ap;\
                         va_start(ap, format);\
-                        bzero(buf, bufer_size);\
-                        int  rc = vsnprintf(buf, bufer_size, format, ap);\
+                        bzero(buf, buffer_size);\
+                        int  rc = vsnprintf(buf, buffer_size, format, ap);\
                         va_end(ap);\
-                        if( rc >= bufer_size ) return RC_ERR_BUFER_OVERFLOW;\
+                        if( rc >= buffer_size ) return RC_ERR_BUFFER_OVERFLOW;\
                         if(rc <  0) return RC_ERR_DATA_FORMAT;\
                         rc = redis_send( type, "%s %s\r\n", comand, buf);\
                         return rc;\
@@ -180,25 +180,36 @@ int read_int(const char* bufer, int* delta)
 
     SimpleRedisClient::SimpleRedisClient()
     {
-        setBuferSize(2048);
+        setBufferSize(2048);
     }
 
-    int SimpleRedisClient::getBuferSize()
+    int SimpleRedisClient::getBufferSize()
     {
-        return bufer_size;
+        return buffer_size;
     }
 
-    void SimpleRedisClient::setBuferSize(int size)
+    
+    void SimpleRedisClient::setMaxBufferSize(int size)
     {
-        if(bufer != 0)
+        max_buffer_size = size;
+    }
+    
+    int SimpleRedisClient::getMaxBufferSize()
+    {
+        return max_buffer_size;
+    }
+    
+    void SimpleRedisClient::setBufferSize(int size)
+    {
+        if(buffer != 0)
         {
-            delete bufer;
+            delete buffer;
             delete buf;
         }
 
-        bufer_size = size;
-        bufer = new char[bufer_size];
-        buf = new char[bufer_size];
+        buffer_size = size;
+        buffer = new char[buffer_size];
+        buf = new char[buffer_size];
     }
 
     SimpleRedisClient::~SimpleRedisClient()
@@ -207,8 +218,8 @@ int read_int(const char* bufer, int* delta)
 
         redis_close();
 
-        delete bufer;
-        bufer_size = 0;
+        delete buffer;
+        buffer_size = 0;
 
         if(host != 0)
         {
@@ -268,6 +279,12 @@ int read_int(const char* bufer, int* delta)
         return debug;
     }
 
+    int SimpleRedisClient::getError(void)
+    {
+        return last_error;
+    }
+    
+    
     int SimpleRedisClient::redis_send(char recvtype, const char *format, ...)
     {
         if(fd == 0)
@@ -288,8 +305,8 @@ int read_int(const char* bufer, int* delta)
         va_list ap;
         va_start(ap, format);
 
-        bzero(bufer,bufer_size);
-        int  rc = vsnprintf(bufer, bufer_size, format, ap);
+        bzero(buffer,buffer_size);
+        int  rc = vsnprintf(buffer, buffer_size, format, ap);
         va_end(ap);
 
         if( rc < 0 )
@@ -297,15 +314,15 @@ int read_int(const char* bufer, int* delta)
             return RC_ERR_DATA_FORMAT;
         }
 
-        if( rc >= bufer_size )
+        if( rc >= buffer_size )
         {
-            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
+            return RC_ERR_BUFFER_OVERFLOW;; // Не хватило буфера
         }
 
-        if(debug > 3  ) printf("SEND:%s",bufer);
-        rc = send_data(bufer);
+        if(debug > 3  ) printf("SEND:%s",buffer);
+        rc = send_data(buffer);
 
-        if (rc != (int) strlen(bufer))
+        if (rc != (int) strlen(buffer))
         {
             if (rc < 0)
             {
@@ -316,31 +333,66 @@ int read_int(const char* bufer, int* delta)
         }
 
 
-        bzero(bufer,bufer_size);
+        bzero(buffer,buffer_size);
         rc = read_select(fd, timeout);
 
         if (rc > 0)
         {
-            rc = recv(fd, bufer, bufer_size, 0);
-            if(rc < 0)
-            {
-                return CR_ERR_RECV;
-            }
+           
+            int offset = 0;
+            do{
+                rc = recv(fd, buffer + offset, buffer_size - offset, 0);
+                
+                printf("REDIS rc=%d\n", rc);
+                
+                if(rc < 0)
+                {
+                    return CR_ERR_RECV;
+                }
+                
+                if(rc >= buffer_size - offset && buffer_size * 2 > max_buffer_size)
+                {
+                    char nullbuf[1000];
+                    int r = 0;
+                    while( (r = recv(fd, nullbuf, 1000, 0)) >= 0)
+                    {
+                        if(debug) printf("REDIS read %d byte\n", r);
+                    }
+                    
+                    last_error = RC_ERR_DATA_BUFFER_OVERFLOW;
+                    break;
+                }
+                else if(rc >= buffer_size - offset && buffer_size * 2 < max_buffer_size)
+                {
+                    if(debug) printf("REDIS Удвоение размера буфера до %d\t[rc=%d, buffer_size=%d, offset=%d]\n",buffer_size *2, rc, buffer_size, offset);
+                    
+                    int last_buffer_size = buffer_size;
+                    char* tbuf = buffer;
+  
+                    buffer_size *= 2;
+                    buffer = new char[buffer_size];
+                    
+                    delete buf;
+                    buf = new char[buffer_size];
 
-            if(debug > 3 && 1) printf("REDIS BUF: recv:%d bufer[%s]",rc, bufer);
+                    memcpy(buffer, tbuf, last_buffer_size);
+                    offset = last_buffer_size;
+                }
+                else
+                {
+                    break;
+                }
+                
+            }while(1);
+           
+            if(debug > 3 && 1) printf("REDIS BUF: recv:%d buffer[%s]",rc, buffer);
 
-            char prefix = bufer[0];
+            char prefix = buffer[0];
 
             if (recvtype != RC_ANY && prefix != recvtype && prefix != RC_ERROR)
             {
-                /*if(rc == 5 && bufer[0] == '$' && bufer[1] == '-' && bufer[2] == '1' )
-                {
-                    // Ответ пустой, случается просто если нет ключа а не ошибка.
-                    //return RC_NULL;
-                }*/
-                
-                printf("\x1b[31m[fd=%d]REDIS RC_ERR_PROTOCOL[%c]:%s\x1b[0m\n",fd, recvtype, bufer); 
-                print_backtrace(bufer);
+                printf("\x1b[31m[fd=%d]REDIS RC_ERR_PROTOCOL[%c]:%s\x1b[0m\n",fd, recvtype, buffer); 
+                print_backtrace(buffer);
                 return RC_ERR_PROTOCOL;
             }
 
@@ -350,26 +402,26 @@ int read_int(const char* bufer, int* delta)
             switch (prefix)
             {
                 case RC_ERROR:
-                    printf("\x1b[31mREDIS[fd=%d] RC_ERROR:%s\x1b[0m\n",fd,bufer);
-                        data = bufer;
+                    printf("\x1b[31mREDIS[fd=%d] RC_ERROR:%s\x1b[0m\n",fd,buffer);
+                        data = buffer;
                         data_size = rc;
-                        print_backtrace(bufer);
+                        print_backtrace(buffer);
                     return rc;
                 case RC_INLINE:
-                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_INLINE:%s\x1b[0m\n", fd,bufer);
-                        data_size = strlen(bufer+1)-2;
-                        data = bufer+1;
+                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_INLINE:%s\x1b[0m\n", fd,buffer);
+                        data_size = strlen(buffer+1)-2;
+                        data = buffer+1;
                         data[data_size] = 0;
                     return rc;
                 case RC_INT:
-                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_INT:%s\x1b[0m\n",fd, bufer);
-                        data = bufer+1;
+                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_INT:%s\x1b[0m\n",fd, buffer);
+                        data = buffer+1;
                         data_size = rc;
                     return rc;
                 case RC_BULK:
-                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_BULK:%s\x1b[0m\n",fd, bufer);
+                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_BULK:%s\x1b[0m\n",fd, buffer);
 
-                        p = bufer;
+                        p = buffer;
                         p++;
 
                         if(*p == '-')
@@ -393,17 +445,18 @@ int read_int(const char* bufer, int* delta)
 
                     return rc;
                 case RC_MULTIBULK:
-                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_MULTIBULK[Len=%d]:%s\x1b[0m\n", fd, rc, bufer);
-                        data = bufer;
+                    if(debug) printf("\x1b[33mREDIS[fd=%d] RC_MULTIBULK[Len=%d]:%s\x1b[0m\n", fd, rc, buffer);
+                        data = buffer;
                         
-                        p = bufer;
+                        p = buffer;
                         p++;
                         int delta = 0;
-                        multibulk_arg =  read_int(p, '\r', &delta);
-                        if(multibulk_arg == 0)
+                        multibulk_arg =  read_int(p, &delta);
+                        if(multibulk_arg < 1)
                         {
                             data = 0;
                             data_size = -1;
+                            if(debug > 5) printf("\x1b[33mREDIS RC_MULTIBULK data_size = 0\x1b[0m\n");
                             return rc;
                         }
                         
@@ -415,6 +468,15 @@ int read_int(const char* bufer, int* delta)
                         
                         for(int i =0; i< multibulk_arg; i++)
                         {
+                            if( buffer_size - 10 < p - buffer)
+                            {
+                                multibulk_arg = i-1;
+                                data_size = i - 1;
+                                if(debug) printf("\x1b[33mREDIS Выход по приближению к концу буфера [p=%d|multibulk_arg=%d]\x1b[0m\n", (int)(p - buffer), multibulk_arg);
+                                last_error = RC_ERR_DATA_BUFFER_OVERFLOW;
+                                return rc;
+                            }
+                            
                             len = 0; 
                             while(*p != '\r') {
                                 len = (len*10)+(*p - '0');
@@ -425,6 +487,17 @@ int read_int(const char* bufer, int* delta)
                             answer_multibulk[i] = p; 
                             
                             p+= len;
+                            
+                            if( buffer_size - 1 < p - buffer )
+                            {
+                                multibulk_arg = i-1;
+                                data_size = i - 1;
+                                if(debug) printf("\x1b[33mREDIS Выход по приближению к концу буфера [p=%d|multibulk_arg=%d]\x1b[0m\n", (int)(p - buffer), multibulk_arg);
+                                last_error = RC_ERR_DATA_BUFFER_OVERFLOW;
+                                return rc;
+                            }
+                            
+                            
                             *p = 0;
                             p+= 3; 
                         }
@@ -701,13 +774,13 @@ int read_int(const char* bufer, int* delta)
         va_list ap;
         va_start(ap, format);
 
-        bzero(buf, bufer_size);
-        int  rc = vsnprintf(buf, bufer_size, format, ap);
+        bzero(buf, buffer_size);
+        int  rc = vsnprintf(buf, buffer_size, format, ap);
         va_end(ap);
 
-        if( rc >= bufer_size )
+        if( rc >= buffer_size )
         {
-            return RC_ERR_BUFER_OVERFLOW;; // Не хватило буфера
+            return RC_ERR_BUFFER_OVERFLOW;; // Не хватило буфера
         }
 
         if(rc <  0)
@@ -869,7 +942,7 @@ int read_int(const char* bufer, int* delta)
        * server require password? */
       if (redis_send( RC_BULK, "INFO\r\n") == 0)
       {
-        sscanf(bufer, "redis_version:%d.%d.%d\r\n", &version_major, &version_minor, &version_patch);
+        sscanf(buffer, "redis_version:%d.%d.%d\r\n", &version_major, &version_minor, &version_patch);
         return version_major;
       }
 
@@ -941,10 +1014,15 @@ int read_int(const char* bufer, int* delta)
     {
         if(keys(key))
         {
+            if(getDataSize() < 1)
+            {
+                return 0;
+            }
+            
             char **ptr_data = new char*[getDataSize()];
 
-            char *data = new char[ getBuferSize() ];
-            memcpy(data, getData(), getBuferSize());
+            char *data = new char[ getBufferSize() ];
+            memcpy(data, getData(), getBufferSize());
 
             int num_keys = getDataSize();
             for(int i =0; i< num_keys; i++)
@@ -978,18 +1056,23 @@ int read_int(const char* bufer, int* delta)
     {
         va_list ap;
         va_start(ap, format);
-        bzero(buf, bufer_size);
-        int  rc = vsnprintf(buf, bufer_size, format, ap);
+        bzero(buf, buffer_size);
+        int  rc = vsnprintf(buf, buffer_size, format, ap);
         va_end(ap);
-        if( rc >= bufer_size ) return RC_ERR_BUFER_OVERFLOW;
+        if( rc >= buffer_size ) return RC_ERR_BUFFER_OVERFLOW;
         if(rc <  0) return RC_ERR_DATA_FORMAT;
         
         if(redis_send(RC_MULTIBULK, "KEYS %s\r\n", buf))
         {
+            if(getDataSize() < 1)
+            {
+                return 0;
+            }
+            
             char **ptr_data = new char*[getDataSize()];
 
-            char *data = new char[ getBuferSize() ];
-            memcpy(data, getData(), getBuferSize());
+            char *data = new char[ getBufferSize() ];
+            memcpy(data, getData(), getBufferSize());
 
             int num_keys = getDataSize();
             for(int i =0; i< num_keys; i++)

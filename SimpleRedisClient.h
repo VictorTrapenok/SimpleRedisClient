@@ -20,13 +20,15 @@
 #define CR_ERR_RECV -103
 
 #define RC_ERR_PROTOCOL -104
-#define RC_ERR_BUFER_OVERFLOW -105
+#define RC_ERR_BUFFER_OVERFLOW -105
 #define RC_ERR_DATA_FORMAT -106
+
+#define RC_ERR_DATA_BUFFER_OVERFLOW -107
  
 
-int read_int(const char* bufer, char delimiter, int* delta);
-int read_int(const char* bufer, char delimiter);
-int read_int(const char* bufer, int* delta);
+int read_int(const char* buffer, char delimiter, int* delta);
+int read_int(const char* buffer, char delimiter);
+int read_int(const char* buffer, int* delta);
 
 class SimpleRedisClient
 {
@@ -35,10 +37,16 @@ class SimpleRedisClient
     int yes = 1;
     int timeout = 1000;
 
-    char* bufer = 0;
+    char* buffer = 0;
     char* buf = 0;
-    int bufer_size = 0;
+    int buffer_size = 0;
 
+    /**
+     * Максимально допустимый размер буфера
+     */
+    int max_buffer_size = 1000000;
+    
+    
     int port = 6379;
     char* host = 0;
     
@@ -60,6 +68,7 @@ class SimpleRedisClient
     
     int debug = 0;
     
+    int last_error = 0;
     
 public:
     
@@ -344,9 +353,14 @@ public:
      */
     int getDataSize() const;
      
-    void setBuferSize(int size);
-    int getBuferSize();
+    void setBufferSize(int size);
+    int getBufferSize();
     
+    void setMaxBufferSize(int size);
+    int getMaxBufferSize();
+    
+    
+    int getError();
 protected:
       
     int read_select(int fd, int timeout )  const;
