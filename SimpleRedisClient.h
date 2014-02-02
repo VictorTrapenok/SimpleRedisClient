@@ -24,9 +24,9 @@
 #define RC_ERR_DATA_FORMAT -106
  
 
-int read_int(const char* bufer,char delimiter,int* delta);
-int read_int(const char* bufer,char delimiter);
-  
+int read_int(const char* bufer, char delimiter, int* delta);
+int read_int(const char* bufer, char delimiter);
+int read_int(const char* bufer, int* delta);
 
 class SimpleRedisClient
 {
@@ -169,8 +169,7 @@ public:
      * Вернёт true если соединение установлено 
      */
     operator bool () const;
-    
-    
+     
     /**
      *  rc == true  истино если соединение установлено
      *  rc == false  истино если соединение не установлено 
@@ -251,6 +250,9 @@ public:
 
     int del( const char *key);
     int del_printf(const char *format, ...);
+    
+    int delete_keys( const char *key);
+    int delete_keys_printf(const char *format, ...);
 
     int type( const char *key);
 
@@ -314,8 +316,7 @@ public:
      */
     int ttl( const char *key);
     int ttl_printf(const char *format, ...);
-    
-    int delta( int delta, const char *key);
+     
     
     int getRedisVersion();
     

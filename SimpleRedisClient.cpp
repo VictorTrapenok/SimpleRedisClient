@@ -50,19 +50,20 @@ int read_int(const char* bufer,char delimiter,int* delta)
     int len = 0;
     int d = 0;
     
-    if(*p == '0' )
+    while(*p == '0' )
     {
         (*delta)++;
-        return 0;
+        p++;
+        //return 0;
     }
 
     while(*p != delimiter)
-    {
+    { 
         if(*p > '9' || *p < '0')
         {
             return -1;
         }
-        
+         
         len = (len*10)+(*p - '0');
         p++;
         (*delta)++;
@@ -72,8 +73,7 @@ int read_int(const char* bufer,char delimiter,int* delta)
         {
             return -1;
         }
-    }
-
+    } 
     return len;
 }
 
@@ -83,9 +83,9 @@ int read_int(const char* bufer,char delimiter)
     int len = 0;
     int delta = 0;
 
-    if(*p == '0' )
+    while(*p == '0' )
     {
-        return 0;
+        p++;
     }
     
     while(*p != delimiter)
@@ -104,6 +104,39 @@ int read_int(const char* bufer,char delimiter)
         }
     }
 
+    return len;
+}
+
+int read_int(const char* bufer, int* delta)
+{ 
+    const char* p = bufer;
+    int len = 0;
+    int d = 0;
+    
+    while(*p == '0' )
+    {
+        (*delta)++;
+        p++;
+        //return 0;
+    }
+
+    while(1)
+    { 
+        if(*p > '9' || *p < '0')
+        {
+            return len;
+        }
+         
+        len = (len*10)+(*p - '0');
+        p++;
+        (*delta)++;
+        d++;
+        
+        if(d > 7)
+        {
+            return -1;
+        }
+    } 
     return len;
 }
 
@@ -139,7 +172,6 @@ int read_int(const char* bufer,char delimiter)
                         bzero(buf, bufer_size);\
                         int  rc = vsnprintf(buf, bufer_size, format, ap);\
                         va_end(ap);\
-                        printf("CODE PRINTF %s test-buf:%s\n", comand, buf);\
                         if( rc >= bufer_size ) return RC_ERR_BUFER_OVERFLOW;\
                         if(rc <  0) return RC_ERR_DATA_FORMAT;\
                         rc = redis_send( type, "%s %s\r\n", comand, buf);\
@@ -778,20 +810,20 @@ int read_int(const char* bufer,char delimiter)
      */
     SimpleRedisClient::operator int () const
     { 
-        printf("SimpleRedisClient::operator int (%d) \n", data_size);
         if(data_size < 1)
         {
-             printf("SimpleRedisClient::operator int (%d) \n", data_size);
+            printf("SimpleRedisClient::operator int (%d) \n", data_size);
             return data_size;
         }
         
         if(getData() == 0)
         {
+            printf("SimpleRedisClient::operator int (%d) \n", data_size);
             return -1;
         }
         
-        int r = read_int(getData(), '\r');
-        
+        int d = 0;
+        int r = read_int(getData(), &d);
         
         printf("SimpleRedisClient::operator int (%d|res=%d) \n", data_size, r);
         
@@ -899,6 +931,87 @@ int read_int(const char* bufer,char delimiter)
         REDIS_PRINTF_MACRO_CODE(RC_INT, "DEL")
     }
     
+    /**
+     * Удаляет все найденые ключи, тоесть ищет их командой keys и удаляет каждый найденый ключь.
+     * @param key
+     * @return Вернёт -1 или количество удалёных ключей
+     * @todo Реализовать более быстрый способ работы
+     */
+    int SimpleRedisClient::delete_keys( const char *key)
+    {
+        if(keys(key))
+        {
+            char **ptr_data = new char*[getDataSize()];
+
+            char *data = new char[ getBuferSize() ];
+            memcpy(data, getData(), getBuferSize());
+
+            int num_keys = getDataSize();
+            for(int i =0; i< num_keys; i++)
+            {
+                ptr_data[i] = getData(i);
+            }
+
+            long int offset = data - getData(); // Опасное дело!
+
+            for(int i =0; i< num_keys; i++)
+            {
+                printf("del[%d]:%s\n", i, ptr_data[i] + offset);
+                del(ptr_data[i] + offset);
+            }
+
+            delete data;
+            delete ptr_data;
+            return num_keys;
+        }
+        
+        return -1;
+    }
+    
+    /**
+     * Удаляет все найденые ключи, тоесть ищет их командой keys и удаляет каждый найденый ключь.
+     * @param key
+     * @return Вернёт -1 или количество удалёных ключей
+     * @todo Реализовать более быстрый способ работы
+     */
+    int SimpleRedisClient::delete_keys_printf(const char *format, ...)
+    {
+        va_list ap;
+        va_start(ap, format);
+        bzero(buf, bufer_size);
+        int  rc = vsnprintf(buf, bufer_size, format, ap);
+        va_end(ap);
+        if( rc >= bufer_size ) return RC_ERR_BUFER_OVERFLOW;
+        if(rc <  0) return RC_ERR_DATA_FORMAT;
+        
+        if(redis_send(RC_MULTIBULK, "KEYS %s\r\n", buf))
+        {
+            char **ptr_data = new char*[getDataSize()];
+
+            char *data = new char[ getBuferSize() ];
+            memcpy(data, getData(), getBuferSize());
+
+            int num_keys = getDataSize();
+            for(int i =0; i< num_keys; i++)
+            {
+                ptr_data[i] = getData(i);
+            }
+
+            long int offset = data - getData(); // Опасное дело!
+
+            for(int i =0; i< num_keys; i++)
+            {
+                printf("del[%d]:%s\n", i, ptr_data[i] + offset);
+                del(ptr_data[i] + offset);
+            }
+
+            delete data;
+            delete ptr_data;
+            return num_keys;
+        }
+        return -1;
+    }
+    
     
     int SimpleRedisClient::type( const char *key)
     {
@@ -984,19 +1097,7 @@ int read_int(const char* bufer,char delimiter)
     {
         REDIS_PRINTF_MACRO_CODE(RC_INT, "TTL")
     }
-    
-    int SimpleRedisClient::delta( int delta, const char *key)
-    {
-        if (delta == 1 || delta == -1)
-        {
-            return redis_send( RC_INT, "%s %s\r\n",  delta > 0 ? "INCR" : "DECR", key);
-        }
-        else
-        {
-            return redis_send( RC_INT, "%s %s %d\r\n", delta > 0 ? "INCRBY" : "DECRBY", key, abs(delta) );
-        }
-    }
-
+      
     // Списки
     
     int SimpleRedisClient::lpush(const char *key, const char *val)
@@ -1019,11 +1120,21 @@ int read_int(const char* bufer,char delimiter)
         REDIS_PRINTF_MACRO_CODE(RC_INT, "RPUSH")
     }
     
+    /**
+     * Выборка с конца очереди (то что попало в очередь раньше других), если все сообщения добавлялись с rpush
+     * @param key
+     * @return 
+     */
     int SimpleRedisClient::lpop(const char *key)
     {
       return redis_send( RC_INT, "LPUSH %s\r\n", key);
     }
     
+    /**
+     * Выборка с начала очереди (то что попало в очередь позже других), если все сообщения добавлялись с rpush
+     * @param key
+     * @return 
+     */
     int SimpleRedisClient::lpop_printf(const char *format, ...)
     {
         REDIS_PRINTF_MACRO_CODE(RC_BULK, "LPOP")

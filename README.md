@@ -3,47 +3,43 @@
 <pre>
 int main(int argc, char *argv[])
 {
+    SimpleRedisClient rc;
+  
+    rc.setHost(REDIS_HOST);
+    rc.auth(REDIS_PW);
+    rc.LogLevel(0);
+
+    if(!rc)
+    {
+        printf("Соединение с redis не установлено\n");
+        return -1;
+    }
     
-      SimpleRedisClient rc;
+    rc = "MYKEY my-value-tester";
+    if(rc["MYKEY"])
+    {
+        printf("MYKEY == [%d][%s]\n", (int)rc, (char*)rc);
+    }
+  
+    printf("-------------------\n");
+    rc.sadd_printf("%s %d", "MY_SET", 123);
+    rc.sadd_printf("%s %d", "MY_SET", 14);
 
-	  rc.redis_conect();
-	  
-	  printf("-------------------\n");
-	  if(rc.set("MYKEY","MYVALUE"))
-	  {
-		  printf("MYKEY == [%d][%s]\n", rc.getDataSize(), rc.getData());
-	  }
-	  printf("-------------------\n");
-	   
-	  if(rc.get("MYKEY"))
-	  {
-		  printf("MYKEY == [%d][%s]\n", rc.getDataSize(), rc.getData());
-	  }
-	  
-	  rc = "MYKEY my-value-tester";
-	  
-	  
-	  if(rc["MYKEY"])
-	  {
-		  printf("MYKEY == [%d][%s]\n", (int)rc, (char*)rc);
-	  }
-	  
-	  rc.sadd_printf("%s %d", "fff", 123);
-	  rc.sadd_printf("%s %d", "fff", 14);
-	  
-	  rc.smembers("fff");
-	  
-	  if(rc.getMultiBulkDataAmount())
-	  {
-		  for(int i =0; i< rc.getMultiBulkDataAmount(); i++ )
-		  {
-		      printf("Answer[%d]->%s\n", i, rc.getData(i));
-		  }
-	  }
+    rc.smembers("MY_SET");
 
-	  printf("-------------------\n");
-	  rc.redis_close();
+    if(rc.getMultiBulkDataAmount())
+    {
+        for(int i =0; i< rc.getMultiBulkDataAmount(); i++ )
+        {
+            printf("Answer[%d]->%s\n", i, rc.getData(i));
+        }
+    }
 
-	  return 0;
+    rc = "MYKEY1 my-value-tester";
+    rc = "MYKEY2 my-value-tester";
+
+    rc.delete_keys("MY*");
+     
+    rc.redis_close();
 }
 </pre>
