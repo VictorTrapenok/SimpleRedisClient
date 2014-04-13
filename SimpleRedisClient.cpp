@@ -69,7 +69,7 @@ int read_int(const char* buffer,char delimiter,int* delta)
         (*delta)++;
         d++;
         
-        if(d > 7)
+        if(d > 9)
         {
             return -1;
         }
@@ -98,7 +98,7 @@ int read_int(const char* buffer,char delimiter)
         len = (len*10)+(*p - '0');
         p++;
         delta++;
-        if(delta > 7)
+        if(delta > 9)
         {
             return -1;
         }
@@ -132,7 +132,109 @@ int read_int(const char* buffer, int* delta)
         (*delta)++;
         d++;
         
-        if(d > 7)
+        if(d > 9)
+        {
+            return -1;
+        }
+    } 
+    return len;
+}
+/**
+ * Читает целое число из строки, если ошибка то вернёт -1
+ * @param buffer Строка
+ * @param delimiter Конец для числа
+ * @param delta Количество символов занятое числом и разделителем
+ * @return 
+ */
+long read_long(const char* buffer,char delimiter,int* delta)
+{
+    const char* p = buffer;
+    int len = 0;
+    int d = 0;
+    
+    while(*p == '0' )
+    {
+        (*delta)++;
+        p++;
+        //return 0;
+    }
+
+    while(*p != delimiter)
+    { 
+        if(*p > '9' || *p < '0')
+        {
+            return -1;
+        }
+         
+        len = (len*10)+(*p - '0');
+        p++;
+        (*delta)++;
+        d++;
+        
+        if(d > 18)
+        {
+            return -1;
+        }
+    } 
+    return len;
+}
+
+long read_long(const char* buffer,char delimiter)
+{ 
+    const char* p = buffer;
+    int len = 0;
+    int delta = 0;
+
+    while(*p == '0' )
+    {
+        p++;
+    }
+    
+    while(*p != delimiter)
+    {
+        if(*p > '9' || *p < '0')
+        {
+            return -1;
+        }
+
+        len = (len*10)+(*p - '0');
+        p++;
+        delta++;
+        if(delta > 18)
+        {
+            return -1;
+        }
+    }
+
+    return len;
+}
+
+long read_long(const char* buffer, int* delta)
+{ 
+    const char* p = buffer;
+    int len = 0;
+    int d = 0;
+    
+    while(*p == '0' )
+    {
+        (*delta)++;
+        p++;
+        //return 0;
+    }
+
+    while(1)
+    { 
+        if(*p > '9' || *p < '0')
+        {
+            return len;
+        }
+         
+        len = (len*10)+(*p - '0');
+        p++;
+        (*delta)++;
+        d++;
+        
+        if(d > 18)
         {
             return -1;
         }
@@ -342,9 +444,7 @@ int read_int(const char* buffer, int* delta)
             int offset = 0;
             do{
                 rc = recv(fd, buffer + offset, buffer_size - offset, 0);
-                
-                printf("REDIS rc=%d\n", rc);
-                
+                                
                 if(rc < 0)
                 {
                     return CR_ERR_RECV;
@@ -385,7 +485,7 @@ int read_int(const char* buffer, int* delta)
                 
             }while(1);
            
-            if(debug > 3 && 1) printf("REDIS BUF: recv:%d buffer[%s]",rc, buffer);
+            if(debug > 3) printf("REDIS BUF: recv:%d buffer[%s]",rc, buffer);
 
             char prefix = buffer[0];
 
@@ -727,7 +827,7 @@ int read_int(const char* buffer, int* delta)
      */
     int SimpleRedisClient::scard(const char *key)
     { 
-      return redis_send(RC_MULTIBULK, "SCARD %s\r\n", key);
+      return redis_send(RC_INT, "SCARD %s\r\n", key);
     }
 
     /**
@@ -738,7 +838,7 @@ int read_int(const char* buffer, int* delta)
      */
     int SimpleRedisClient::scard_printf(const char *format, ...)
     { 
-        REDIS_PRINTF_MACRO_CODE(RC_MULTIBULK, "SCARD")
+        REDIS_PRINTF_MACRO_CODE(RC_INT, "SCARD")
     }
     
     /**
@@ -878,7 +978,7 @@ int read_int(const char* buffer, int* delta)
     }
 
     /**
-     * ЗАДОКУМЕНТИРОВАТЬ
+     * @todo ЗАДОКУМЕНТИРОВАТЬ
      * @return 
      */
     SimpleRedisClient::operator int () const
@@ -899,6 +999,32 @@ int read_int(const char* buffer, int* delta)
         int r = read_int(getData(), &d);
         
         printf("SimpleRedisClient::operator int (%d|res=%d) \n", data_size, r);
+        
+        return r;
+    }
+    
+    /**
+     * @todo ЗАДОКУМЕНТИРОВАТЬ
+     * @return 
+     */
+    SimpleRedisClient::operator long () const
+    { 
+        if(data_size < 1)
+        {
+            printf("SimpleRedisClient::operator long (%d) \n", data_size);
+            return data_size;
+        }
+        
+        if(getData() == 0)
+        {
+            printf("SimpleRedisClient::operator long (%d) \n", data_size);
+            return -1;
+        }
+        
+        int d = 0;
+        int r = read_long(getData(), &d);
+        
+        printf("SimpleRedisClient::operator long (%d|res=%d) \n", data_size, r);
         
         return r;
     }
@@ -1201,6 +1327,22 @@ int read_int(const char* buffer, int* delta)
     int SimpleRedisClient::rpush_printf(const char *format, ...)
     {
         REDIS_PRINTF_MACRO_CODE(RC_INT, "RPUSH")
+    }
+    
+    /**
+     * LTRIM mylist 1 -1
+     */
+    int SimpleRedisClient::ltrim(const char *key, int start_pos, int count_elem)
+    {
+      return redis_send( RC_INLINE, "LTRIM %s %d %d\r\n", key, start_pos, count_elem);
+    }
+    
+    /**
+     * LTRIM mylist 1 -1
+     */
+    int SimpleRedisClient::ltrim_printf(const char *format, ...)
+    {
+        REDIS_PRINTF_MACRO_CODE(RC_INLINE, "LTRIM")
     }
     
     /**

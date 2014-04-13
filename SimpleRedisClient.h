@@ -30,6 +30,10 @@ int read_int(const char* buffer, char delimiter, int* delta);
 int read_int(const char* buffer, char delimiter);
 int read_int(const char* buffer, int* delta);
 
+long read_long(const char* buffer, char delimiter, int* delta);
+long read_long(const char* buffer, char delimiter);
+long read_long(const char* buffer, int* delta);
+
 class SimpleRedisClient
 {
 
@@ -159,6 +163,12 @@ public:
      * @return 
      */
     operator int () const;
+    
+    /**
+     * Равносильно методу getData() с преобразованием в long
+     * @return 
+     */
+    operator long () const;
     
     /**
      * Инкриментирует значение ключа key
@@ -301,6 +311,9 @@ public:
     
     int rpush(const char *key, const char *member);
     int rpush_printf(const char *format, ...);
+    
+    int ltrim(const char *key, int start_pos, int count_elem);
+    int ltrim_printf(const char *format, ...);
     
     int lpop(const char *key);
     int lpop_printf(const char *format, ...);
