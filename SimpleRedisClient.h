@@ -26,6 +26,13 @@
 #define RC_ERR_DATA_BUFFER_OVERFLOW -107
  
 
+#define RC_LOG_NONE 0
+#define RC_LOG_ERROR 1
+#define RC_LOG_WARN 2
+#define RC_LOG_LOG 3
+#define RC_LOG_DEBUG 4
+
+
 int read_int(const char* buffer, char delimiter, int* delta);
 int read_int(const char* buffer, char delimiter);
 int read_int(const char* buffer, int* delta);
@@ -36,7 +43,6 @@ long read_long(const char* buffer, int* delta);
 
 class SimpleRedisClient
 {
-
     int fd = 0;
     int yes = 1;
     int timeout = 1000;
@@ -67,12 +73,30 @@ class SimpleRedisClient
     char* data = 0;
     int answer_int = 0;
     
-    int multibulk_arg = 0;;
+    int multibulk_arg = 0;
     char** answer_multibulk = 0;
     
     int debug = 0;
     
     int last_error = 0;
+    
+private:
+    
+    /**
+     * Запрещаем копирование для объектов данного класса
+     * Если открыто соединение с редисом, а потом выполнена копия объекта
+     *  то при удалении любого из объектов в деструкторе соединение закроется.
+     *  ,а при удалении второго вообще ни чего хорошего ждать не надо.
+     * 
+     * Возможно в следующих версиях библиотеки будет реализован адекватный конструктор копирования.
+     */
+    SimpleRedisClient(const SimpleRedisClient& ) = delete;
+    
+    /**
+     * Запрещаем копирование для объектов донного класса
+     * Возможно в следующих версиях библиотеки будет реализован адекватный конструктор копирования.
+     */
+    void operator=( const SimpleRedisClient& ) = delete;
     
 public:
     
@@ -171,14 +195,14 @@ public:
     operator long () const;
     
     /**
-     * Инкриментирует значение ключа key
+     * Инкриментирует значение ключа key, эквивалентно incr
      * @param key ключь в редисе
      * @return 
      */
     int operator +=( const char *key);
     
     /**
-     * Декриментирует значение ключа key
+     * Декриментирует значение ключа key, эквивалентно decr
      * @param key ключь в редисе
      * @return 
      */ 
@@ -194,6 +218,12 @@ public:
      *  rc == false  истино если соединение не установлено 
      */
     int operator == (bool); 
+    
+    int incr(const char *key);
+    int incr_printf(const char *format, ...);
+    
+    int decr(const char *key);
+    int decr_printf(const char *format, ...);
     
     int setex(const char *key, const char *val, int seconds);
     int setex_printf(int seconds, const char *key, const char *format, ...);
