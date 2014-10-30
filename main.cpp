@@ -1,16 +1,13 @@
-<h1>Клиент для работы с редисом.</h1>
 
-<b>
-This client tested only on Ubuntu, Debian, CentOS. (Этот клиент тестировался только под Ubuntu, Debian, CentOS)
-</b>
+#include <stdio.h>
+#include "SimpleRedisClient.h"
 
-<pre>
 int main(int argc, char *argv[])
 {
     SimpleRedisClient rc;
   
-    rc.setHost(REDIS_HOST);
-    rc.auth(REDIS_PW);
+    rc.setHost("127.0.0.1");
+    rc.auth("home");
     rc.LogLevel(0);
 
     if(!rc)
@@ -46,17 +43,3 @@ int main(int argc, char *argv[])
      
     rc.redis_close();
 }
-</pre>
-
-
-<p>
-Тестировался для redis версии 2.6 и 2.8
-</p>
-
-<h1>Последние изменения</h1>
-<p>
-Добавлена поддержка redis версии 2.8
-Автоматически переподключается при потере соединения
-Добавлены некоторые функции от redis такие как select, dbsize и другие
-Поправлены баги работы с сетью
-</p>

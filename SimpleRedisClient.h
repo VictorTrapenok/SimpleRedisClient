@@ -4,12 +4,10 @@
  *
  * Created on 10 Август 2013 г., 22:26
  */
-
+ 
 #ifndef SIMPLEREDISCLIENT_H
 #define	SIMPLEREDISCLIENT_H
- 
-
-#include <list>
+   
 
 #define RC_NULL 0
 #define RC_ERR -1
@@ -32,6 +30,48 @@
 #define RC_LOG_LOG 3
 #define RC_LOG_DEBUG 4
 
+/**
+ * Тип ожидаемых от редиса данных
+ */
+#define RC_ERROR '-'
+
+/**
+ * Тип ожидаемых от редиса данных
+ * Строка в ответе
+ * @see http://redis.io/topics/protocol
+ */
+#define RC_INLINE '+'
+
+/**
+ * Тип ожидаемых от редиса данных
+ * Определяет длину аргумента ответа
+ * -1 нет ответа
+ * @see http://redis.io/topics/protocol
+ */
+#define RC_BULK '$'
+ 
+/**
+ * Тип ожидаемых от редиса данных
+ * Определяет количество аргументов ответа
+ * -1 нет ответа
+ * @see http://redis.io/topics/protocol
+ */
+#define RC_MULTIBULK '*'
+
+/**
+ * Тип ожидаемых от редиса данных
+ */
+#define RC_INT ':'
+
+/**
+ * Тип ожидаемых от редиса данных
+ */
+#define RC_ANY '?'
+
+/**
+ * Тип ожидаемых от редиса данных
+ */
+#define RC_NONE ' '
 
 int read_int(const char* buffer, char delimiter, int* delta);
 int read_int(const char* buffer, char delimiter);
@@ -83,7 +123,7 @@ class SimpleRedisClient
 private:
     
     /**
-     * Запрещаем копирование для объектов данного класса
+     * Запрещаем копирование для объектов донного класса
      * Если открыто соединение с редисом, а потом выполнена копия объекта
      *  то при удалении любого из объектов в деструкторе соединение закроется.
      *  ,а при удалении второго вообще ни чего хорошего ждать не надо.
@@ -127,7 +167,7 @@ public:
      * Ни ключь ни значение не должны содержать "\r\n"
      * @param key
      * @param val
-     * @return
+     * @return Если меньше нуля то код ошибки, а если больше нуля то количество принятых байт
      */
     int set(const char *key, const char *val);
     
@@ -136,7 +176,7 @@ public:
      * Ключ от значения отделяется пробелом.
      * @param format
      * @param ... ключь пробел значение
-     * @return 
+     * @return Если меньше нуля то код ошибки, а если больше нуля то количество принятых байт
      */
     int set_printf(const char *format, ...);
     
@@ -237,7 +277,7 @@ public:
      * 
      * @param format
      * @param ...
-     * @return 
+     * @return  Если меньше нуля то код ошибки, а если больше нуля то количество принятых байт
      */
     int setex_printf(const char *format, ...);
 
@@ -250,7 +290,7 @@ public:
      * @param key
      * @param set_val
      * @param get_val
-     * @return 
+     * @return  Если меньше нуля то код ошибки, а если больше нуля то количество принятых байт
      */
     int getset(const char *key, const char *set_val);
     int getset_printf(const char *format, ...);
@@ -265,8 +305,7 @@ public:
     int quit();
 
     int auth(const char *password);
- 
-
+   
     int setnx(const char *key, const char *val);
     int setnx_printf(const char *format, ...);
 
@@ -316,6 +355,9 @@ public:
     int renamenx( const char *key, const char *new_key_name);
     int renamenx_printf(const char *format, ...);
 
+    /**
+     * Return the number of keys in the selected database 
+     */
     int dbsize();
 
     int expire( const char *key, int secs);
@@ -382,7 +424,7 @@ public:
      * Закрывает соединение
      */
     void redis_close();
-    
+        
     /** 
      * Выдаётся указатьель на внутриний буфер чтения/записи ссылка потеряет актуальность при вызове любой функции на получение или запись данных.
      * Или по указаному адресу будут уже другие данные либо мусор. 
@@ -402,16 +444,37 @@ public:
     void setMaxBufferSize(int size);
     int getMaxBufferSize();
     
+    /**
+     * Выбор бызы данных
+     * @param index
+     * @see http://redis.io/commands/select
+     */
+    int selectDB(int index);
     
     int getError();
+    
+    int redis_raw_send(char recvtype, const char *buffer);
 protected:
+    
+    char* lastAuthPw = NULL;
+    int lastSelectDBIndex = 0;
       
+    int reconect( );
+    
+    
     int read_select(int fd, int timeout )  const;
     
     int wright_select(int fd, int timeout )  const;
     
+    /**
+     * Отправляет запрос редису
+     * @param recvtype тип ожидаемого результата
+     * @param format Строка запроса
+     * @param ...
+     * @return Если меньше нуля то код ошибки, а если больше нуля то количество принятых байт
+     */
     int redis_send(char recvtype, const char *format, ...);
-  
+    
     /**
      * Отправляет данные
      * @param buf
