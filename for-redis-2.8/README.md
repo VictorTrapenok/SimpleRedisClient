@@ -1,9 +1,10 @@
-<h1>Клиент для работы с редисом</h1>
+<h1>Клиент для работы с редисом версии 2.8</h1>
 
 <b>
 This client tested only on Ubuntu, Debian, CentOS. (Этот клиент тестировался только под Ubuntu, Debian, CentOS)
 </b>
- 
+
+<p>Тестировался для redis версии 2.8</p>
 <p>В разных версиях redis имеются отличия в протоколе, чтоб не усложнять код и не плодить баги для каждой версии redis свой клинт.</p>
 
 <h1>Последние изменения</h1>
@@ -16,7 +17,6 @@ This client tested only on Ubuntu, Debian, CentOS. (Этот клиент тес
 </ul>
 </p>
 
-<h1>Пример использования</h1>
 <pre>
 int main(int argc, char *argv[])
 {
@@ -60,3 +60,4 @@ int main(int argc, char *argv[])
     rc.redis_close();
 }
 </pre>
+
