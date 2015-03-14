@@ -39,6 +39,31 @@
 
 #define debugLine printf("\n%s:%d\n", __FILE__, __LINE__)
 
+
+
+void print_rcBacktrace(const char* reason)
+{
+        static const char start[] = "\x1b[1;31m------------ RC-BACKTRACE ------------\x1b[0m\n";
+        static const char end[] =   "\x1b[1;31m--------------------------------------\x1b[0m\n";
+
+        void *bt[1024];
+        int bt_size;
+        char **bt_syms;
+        int i;
+
+        bt_size = backtrace(bt, 1024);
+        bt_syms = backtrace_symbols(bt, bt_size);
+        full_write(STDERR_FILENO, start, strlen(start));
+        full_write(STDERR_FILENO, reason, strlen(reason));
+        for (i = 1; i < bt_size; i++) {
+                size_t len = strlen(bt_syms[i]);
+                full_write(STDERR_FILENO, bt_syms[i], len);
+                full_write(STDERR_FILENO, "\n", 1);
+        }
+        full_write(STDERR_FILENO, end, strlen(end));
+    free(bt_syms);
+}
+
 /**
  * Читает целое число из строки, если ошибка то вернёт -1
  * @param buffer Строка
@@ -375,19 +400,19 @@ long read_long(const char* buffer, int* delta)
     }
     
     int SimpleRedisClient::redis_raw_send(char recvtype,const char *dataCommand)
-    { 
+    {        
         int rc = send_data(dataCommand);
         
         if (rc < 0)
         {
-            if(debug) printf("Данные не отправлены [RC_ERR_SEND]");
+            print_rcBacktrace("Данные не отправлены [RC_ERR_SEND]");
             reconect();
             return RC_ERR_SEND;
         }
         
         if (rc != (int) strlen(dataCommand))
         { 
-            if(debug) printf("Ответ не получен [RC_ERR_TIMEOUT]");
+            print_rcBacktrace("Ответ не получен [RC_ERR_TIMEOUT]");
             reconect();
             return RC_ERR_TIMEOUT;
         }
@@ -443,12 +468,13 @@ long read_long(const char* buffer, int* delta)
                 }
 
             }while(1);
-            if(debug > 3) printf("REDIS BUF: recv:%d buffer[%s]",rc, buffer);
+            if(debug >= RC_LOG_DEBUG) printf("REDIS BUF: recv:%d buffer[%s]",rc, buffer);
 
             char prefix = buffer[0];
             if (recvtype != RC_ANY && prefix != recvtype && prefix != RC_ERROR)
             {
                 printf("\x1b[31m[fd=%d]REDIS RC_ERR_PROTOCOL[%c]:%s\x1b[0m\n",fd, recvtype, buffer);
+                print_rcBacktrace(buffer);
                 return RC_ERR_PROTOCOL;
             }
 
@@ -459,8 +485,9 @@ long read_long(const char* buffer, int* delta)
                 case RC_ERROR:
                     printf("\x1b[31mREDIS[fd=%d] RC_ERROR:%s\x1b[0m\n",fd,buffer);
                         data = buffer;
-                        data_size = rc;
-                    return rc;
+                        data_size = rc; 
+                        print_rcBacktrace(buffer);
+                    return -rc;
                 case RC_INLINE:
                     if(debug) printf("\x1b[33mREDIS[fd=%d] RC_INLINE:%s\x1b[0m\n", fd,buffer);
                         data_size = strlen(buffer+1)-2;
@@ -563,23 +590,25 @@ long read_long(const char* buffer, int* delta)
         }
         else if (rc == 0)
         {
-            if(debug) printf("Соединение закрыто [RC_ERR_CONECTION_CLOSE]");
+            print_rcBacktrace("Соединение закрыто [RC_ERR_CONECTION_CLOSE]");
             reconect();
             return RC_ERR_CONECTION_CLOSE; // Соединение закрыто
         }
         else
         {
-            if(debug) printf("Не пришли данные от redis[RC_ERR]");
+            print_rcBacktrace("Не пришли данные от redis[RC_ERR]");
             return RC_ERR; // error
         }
     }
 
     int SimpleRedisClient::redis_send(char recvtype, const char *format, ...)
     {
-        debug = 5;
-        if(fd == 0)
+        if(fd <= 0)
         {
-            redis_conect();
+            if(redis_conect() < 0)
+            {
+                return RC_ERR;
+            }
         }
 
         data = 0;
@@ -732,15 +761,14 @@ long read_long(const char* buffer, int* delta)
     }
     
     int SimpleRedisClient::redis_conect()
-    {
+    {  
         if(host == 0)
         {
             setHost("127.0.0.1");
         }
         
-        if(debug > 1) printf("\x1b[32mredis host:%s %d\x1b[0m\n", host, port);
+        if(debug >= RC_LOG_LOG) printf("\x1b[32mredis host:%s %d\x1b[0m\n", host, port);
         
-        debug = 9;
         int rc;
         struct sockaddr_in sa;
         bzero(&sa, sizeof(sa));
@@ -750,7 +778,7 @@ long read_long(const char* buffer, int* delta)
 
         if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1 || setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (void *)&yes, sizeof(yes)) == -1 || setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (void *)&yes, sizeof(yes)) == -1)
         {
-            if(debug) printf("open error %d\n", fd);
+            printf("open error %d\n", fd);
         }
 
         struct addrinfo hints, *info = NULL;
@@ -764,8 +792,8 @@ long read_long(const char* buffer, int* delta)
             if (err)
             {
                 printf("\x1b[31mgetaddrinfo error: %s [%s]\x1b[0m\n", gai_strerror(err), host);
-                if(debug) printf("\x1b[31mgetaddrinfo error\x1b[0m\n");
-                return -1;
+                print_rcBacktrace("\x1b[31mgetaddrinfo error\x1b[0m\n");
+                return RC_ERR;
             }
 
             memcpy(&sa.sin_addr.s_addr, &(info->ai_addr->sa_data[2]), sizeof(in_addr_t));
@@ -776,14 +804,17 @@ long read_long(const char* buffer, int* delta)
         if ((rc = fcntl(fd, F_SETFL, flags | O_NONBLOCK)) < 0)
         {
             printf("\x1b[31mSetting socket non-blocking failed with: %d\x1b[0m\n", rc);
-                if(debug) printf("\x1b[31mSetting socket non-blocking failed\x1b[0m\n");
-            return -1;
+            print_rcBacktrace("\x1b[31mSetting socket non-blocking failed\x1b[0m\n"); 
+            return RC_ERR;
         }
-
-        if (connect(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0)
+ 
+        if( connect(fd, (struct sockaddr *)&sa, sizeof(sa)) != 0)
         {
             if (errno != EINPROGRESS)
             {
+                print_rcBacktrace("\x1b[31mconnect error\x1b[0m\n");
+                close(fd);
+                fd = 0;
                 return RC_ERR;
             }
 
@@ -793,16 +824,22 @@ long read_long(const char* buffer, int* delta)
                 unsigned int len = sizeof(err);
                 if(getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == -1 || err)
                 {
+                    print_rcBacktrace("\x1b[31mgetsockopt error\x1b[0m\n");
+                    close(fd);
+                    fd = 0;
                     return RC_ERR;
                 }
             }
             else /* timeout or select error */
             {
+                print_rcBacktrace("\x1b[31mtimeout or select error\x1b[0m\n");
+                close(fd);
+                fd = 0;
                 return RC_ERR_TIMEOUT;
             }
         }
+        
         if(debug >  RC_LOG_DEBUG) printf("open ok %d\n", fd);
-
         return fd;
     }
 
@@ -1542,4 +1579,4 @@ long read_long(const char* buffer, int* delta)
     {
         return data_size;
     }
-
+    
