@@ -33,13 +33,25 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "backtrace.h"
+#include <execinfo.h>
 
 #include "SimpleRedisClient.h"
 
 #define debugLine printf("\n%s:%d\n", __FILE__, __LINE__)
 
 
+static void full_write(int fd, const char *buf, size_t len)
+{
+        while (len > 0) {
+                ssize_t ret = write(fd, buf, len);
+
+                if ((ret == -1) && (errno != EINTR))
+                        break;
+
+                buf += (size_t) ret;
+                len -= (size_t) ret;
+        }
+}
 
 void print_rcBacktrace(const char* reason)
 {
